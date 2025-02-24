@@ -2,101 +2,116 @@ import sys
 import select
 import re
 from machine import UART, Pin
-from hardware import init_leg, apply_servo_angles  # Import functions from hardware.py
+from hardware import set_multiple_servo_pwm, debug_log  # Import functions from hardware.py
 
 # UART setup
 uart = UART(0, baudrate=115200, tx=Pin(0), rx=Pin(1), timeout=50)
 
 # Regex patterns for parsing commands
-ANGLE_PATTERN = re.compile(r"#ANGLES\[\s*(-?\d+),\s*(-?\d+),\s*(-?\d+)\s*\]")
-INIT_LEG_PATTERN = re.compile(r"#INIT_LEG\[\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\s*\]")
+SET_PWM_PATTERN = re.compile(r"#SET_PWM\[\s*((?:\d+\s*,\s*\d+\s*,?\s*)+)\]")
 
-toggle_flag = False
-raw_data_1 = b"#INIT_LEG[0,1000,1000,1000]"  # Example test command
-raw_data_2 = b"#INIT_LEG[0,1800,1800,1800]"  # Example test command
-
-def read_test_command():
-    """
-    Simulates reading a test command instead of UART input.
-    """
-    #raw_data = b"#INIT_LEG[0,1487,1455,1477]"  # Example test command
-    global toggle_flag
-    raw_data = raw_data_1 if toggle_flag else raw_data_2
-    toggle_flag = not toggle_flag
-    
-    try:
-        command = raw_data.decode().strip()
-        print(f"[DEBUG] [COMMUNICATION] Received test command: {command}")
-        return command
-    except UnicodeDecodeError:
-        print("[ERROR] [COMMUNICATION] Failed to decode test input.")
-    return None
 
 def read_command():
     """
-    Reads commands from UART or stdin.
+    Reads commands from UART or stdin and ensures that they are complete before processing.
     """
-    if uart.any():
-        raw_data = uart.readline()
-        if raw_data:
-            try:
-                command = raw_data.decode().strip()
-                print(f"[DEBUG] [COMMUNICATION] Received UART command: {command}")
-                return command
-            except UnicodeDecodeError:
-                print("[ERROR] [COMMUNICATION] Failed to decode UART input.")
-    if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
-        command = sys.stdin.readline().strip()
-        print(f"[DEBUG] [COMMUNICATION] Received stdin command: {command}")
+    command = read_uart_input() or read_stdin_input()
+    if command:
+        debug_log(f"[COMMUNICATION] Processing command: {command}", level=2)
         return command
     return None
 
+
+def read_uart_input():
+    """
+    Reads a full UART command, removes unnecessary characters, 
+    and extracts only the valid command inside #SET_PWM[...] brackets.
+    """
+    # Versuche, den UART-Puffer zu leeren, bevor neue Daten kommen
+    while uart.any():
+        uart.read()
+
+    raw_data = uart.readline()  # Lese eine komplette Zeile von UART
+
+    if raw_data:
+        try:
+            command = raw_data.decode(errors='ignore').strip()
+            
+            # Falls der Befehl zu kurz ist oder nur Schrott enthält → Verwerfen
+            if len(command) < 10:
+                debug_log("[COMMUNICATION] Ignored short/broken UART input.", level=2)
+                return None
+            
+            debug_log(f"[COMMUNICATION] Raw UART input: {command}", level=2)
+
+            # Extrahiere nur den Befehl innerhalb von #SET_PWM[...]
+            start = command.find("#SET_PWM[")
+            end = command.find("]", start)  # Schließende Klammer suchen
+
+            if start != -1 and end != -1:
+                cleaned_command = command[start:end + 1]  # Nur den gültigen Teil behalten
+                debug_log(f"[COMMUNICATION] Cleaned UART command: {cleaned_command}", level=2)
+                return cleaned_command
+            else:
+                debug_log("[COMMUNICATION] No valid #SET_PWM command found.", level=2)
+                return None
+        except UnicodeDecodeError:
+            debug_log("[COMMUNICATION] Failed to decode UART input.", level=2)
+    return None
+
+
+def read_stdin_input():
+    """
+    Reads input from stdin without blocking.
+    """
+    if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
+        return sys.stdin.readline().strip()
+    return None
+
+
 def process_command(command):
     """
-    Processes incoming UART commands and forwards them to hardware functions.
+    Processes incoming UART commands and forwards them to the corresponding hardware functions.
     """
-    print(f"[DEBUG] [COMMUNICATION] Processing command: {command}")
-    if command.startswith("#INIT_LEG"):
-        extract_init_leg(command)
-    elif command.startswith("#ANGLES"):
-        angles = extract_angles(command)
-        if angles:
-            print(f"[DEBUG] [COMMUNICATION] Applying angles: {angles}")
-            apply_servo_angles(angles)  # Move servos based on received angles
+    debug_log(f"[COMMUNICATION] Processing command: {command}", level=2)
 
-def extract_angles(command):
+    if command.startswith("#SET_PWM"):  # Handle multiple servo PWM settings
+        pwm_dict = extract_multiple_pwm(command)
+        if pwm_dict:
+            debug_log(f"[COMMUNICATION] Sending multiple PWM values to hardware: {pwm_dict}", level=2)
+            set_multiple_servo_pwm(pwm_dict)  # Pass the whole dictionary at once
+
+
+def extract_multiple_pwm(command):
     """
-    Extracts angle values from a valid #ANGLES command.
+    Extracts multiple servo PWM values from a valid #SET_PWM command.
+    Ensures that only properly formatted values are used.
     """
-    match = ANGLE_PATTERN.match(command)
+    # Use regex to extract only the values inside the square brackets
+    match = SET_PWM_PATTERN.match(command)
     if match:
         try:
-            angles = [int(match.group(1)), int(match.group(2)), int(match.group(3))]
-            print(f"[DEBUG] [COMMUNICATION] Extracted angles: {angles}")
-            return angles
+            raw_values = match.group(1).replace(" ", "")  # Remove unnecessary spaces
+            debug_log(f"[COMMUNICATION] Extracted raw PWM values: {raw_values}", level=2)
+
+            # Split values into a list of integers
+            values = list(map(int, raw_values.split(",")))
+            if len(values) % 2 != 0:
+                debug_log("[COMMUNICATION] Invalid format: Uneven number of arguments in #SET_PWM command.", level=2)
+                return None
+            
+            # Create a dictionary where keys are pin numbers and values are PWM values
+            pwm_dict = {values[i]: values[i + 1] for i in range(0, len(values), 2)}
+            debug_log(f"[COMMUNICATION] Parsed PWM values: {pwm_dict}", level=2)
+            return pwm_dict
+        
         except ValueError:
-            print("[ERROR] [COMMUNICATION] Invalid input. Expected integer values between -90 and 90.")
+            debug_log("[COMMUNICATION] Invalid numeric values in #SET_PWM command.", level=2)
             return None
     else:
-        print(f"[ERROR] [COMMUNICATION] Invalid format. Expected: #ANGLES[30,-30,45], received: {command}")
+        debug_log(f"[COMMUNICATION] Invalid format. Expected: #SET_PWM[n1,pwm1,n2,pwm2,...], received: {command}", level=2)
         return None
 
-def extract_init_leg(command):
-    """
-    Extracts initialization values from a valid #INIT_LEG command and calls init_leg.
-    """
-    match = INIT_LEG_PATTERN.match(command)
-    if match:
-        try:
-            leg_number = int(match.group(1))
-            init_pwm_0 = int(match.group(2))
-            init_pwm_1 = int(match.group(3))
-            init_pwm_2 = int(match.group(4))
-
-            print(f"[DEBUG] [COMMUNICATION] Extracted INIT_LEG values: Leg {leg_number}, PWM: {init_pwm_0}, {init_pwm_1}, {init_pwm_2}")
-            init_leg(leg_number, init_pwm_0, init_pwm_1, init_pwm_2)
-        except ValueError:
-            print("[ERROR] [COMMUNICATION] Invalid input. Expected integer values for INIT_LEG.")
 
 def send_status(switch_state, current):
     """
@@ -104,54 +119,20 @@ def send_status(switch_state, current):
     """
     uart_data = f"[{switch_state:06b}] [{current:.3f}]\n"
     uart.write(uart_data)
-    print(f"[DEBUG] [COMMUNICATION] Sent status: {uart_data.strip()}")
-
-##########################################################################################################
-#test functions, use as needed to imitate incomming message from uart
-##########################################################################################################
+    debug_log(f"[COMMUNICATION] Sent status: {uart_data.strip()}", level=2)
 
 
-toggle_flag_angles = False
-raw_angle_1 = b"#ANGLES[30,-30,45]"  # Example test command
-raw_angle_2 = b"#ANGLES[-45,45,0]"  # Example test command
+##############################################################################################################
 
-def read_test_angles_command():
+
+def test_set_pwm():
     """
-    Simulates reading a test ANGLES command instead of UART input.
+    Simulates a UART command to set a single servo's PWM.
     """
-    global toggle_flag_angles
-    raw_data = raw_angle_1 if toggle_flag_angles else raw_angle_2
-    toggle_flag_angles = not toggle_flag_angles
+    test_command = "#SET_PWM[1,2300]"  # Example command to set Servo 1 to 1500 µs PWM
+
+    debug_log(f"[TEST] Sending test command: {test_command}", level=2)
     
-    try:
-        command = raw_data.decode().strip()
-        print(f"[DEBUG] [COMMUNICATION] Received test ANGLES command: {command}")
-        return command
-    except UnicodeDecodeError:
-        print("[ERROR] [COMMUNICATION] Failed to decode test input.")
-    return None
+    # Call the process_command function with the test command
+    return test_command
 
-################################################################################################
-
-toggle_flag_angles = False
-raw_angle_1 = b"#ANGLES[70,140,20]"  # Example test command
-raw_angle_2 = raw_angle_1
-raw_angle_2 = b"#ANGLES[0,140,-20]"  # Example test command
-
-def read_test_angles_command():
-    """
-    Simulates reading a test ANGLES command instead of UART input.
-    """
-    global toggle_flag_angles
-    raw_data = raw_angle_1 if toggle_flag_angles else raw_angle_2
-    toggle_flag_angles = not toggle_flag_angles
-    
-    try:
-        command = raw_data.decode().strip()
-        print(f"[DEBUG] [COMMUNICATION] Received test ANGLES command: {command}")
-        return command
-    except UnicodeDecodeError:
-        print("[ERROR] [COMMUNICATION] Failed to decode test input.")
-    return None
-
-    
