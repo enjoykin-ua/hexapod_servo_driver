@@ -22,7 +22,7 @@ def read_command():
     return None
 
 
-def read_uart_input():
+def read_uart_input_original():
     """
     Reads a full UART command, removes unnecessary characters, 
     and extracts only the valid command inside #SET_PWM[...] brackets.
@@ -32,6 +32,7 @@ def read_uart_input():
         uart.read()
 
     raw_data = uart.readline()  # Lese eine komplette Zeile von UART
+    print(f"Received: {raw_data}")
 
     if raw_data:
         try:
@@ -58,6 +59,36 @@ def read_uart_input():
         except UnicodeDecodeError:
             debug_log("[COMMUNICATION] Failed to decode UART input.", level=2)
     return None
+
+uart_buffer = ""
+def read_uart_input():
+    """
+    Reads UART input, splits commands by newline (\n), and processes them immediately.
+    """
+    global uart_buffer  
+
+    if uart.any():
+        new_data = uart.read().decode(errors='ignore')
+        uart_buffer += new_data  # Append new data to buffer
+        led_flash_other()
+
+    if "\n" in uart_buffer:
+        # Split buffer into commands
+        commands = uart_buffer.split("\n")
+        
+        # Process only the complete command(s)
+        for cmd in commands[:-1]:  
+            if cmd.startswith("#SET_PWM[") and cmd.endswith("]"):
+                debug_log(f"[COMMUNICATION] Processing command: {cmd}", level=2)
+                uart.write(f"[DEBUG] Processed command: {cmd}\n".encode())
+                return cmd
+
+        # Keep only the last (possibly incomplete) command in buffer
+        uart_buffer = commands[-1]
+
+    return None
+
+
 
 
 def read_stdin_input():

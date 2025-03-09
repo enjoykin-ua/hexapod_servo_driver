@@ -13,47 +13,44 @@ user_sw = Button(servo2040.USER_SW)
 test_executed = False
 
 # Custom PWM values for each servo (3 per leg × 6 legs)
-initial_pwm_values = [
-    1500, 1500, 1500,  # Leg 1 (Coxa, Femur, Tibia)
-    1200, 1300, 1500,  # Leg 2
-    1250, 1350, 1550,  # Leg 3
-    1300, 1400, 1600,  # Leg 4
-    1350, 1450, 1650,  # Leg 5
-    1400, 1500, 1700   # Leg 6
+initial_pwm_values_hanging2 = [
+    1500, 850, 1500,  #VL Leg 1 [0, 1, 2]  (Coxa, Femur, Tibia)
+    1500, 850, 1500,  # Leg 2 [3, 4, 5]
+    1500, 2100, 1500,  # Leg 3 [6, 7, 8]
+    1500, 2100, 1500,  # Leg 4
+    1500, 850, 1500,  # Leg 5
+    1500, 850, 1500   # Leg 6
 ]
 
-hardware.initialize_pwm_values(initial_pwm_values) ##
+initial_pwm_values_hanging = [
+    1500, 850, 1500,  # Leg 1 [0, 1, 2]  (Coxa, Femur, Tibia)
+    1500, 850, 1500,  # Leg 2 [3, 4, 5]
+    1500, 2100, 1500,  # Leg 3 [6, 7, 8]
+    1500, 2100, 1500,  # Leg 4
+    1500, 850, 1500,  # Leg 5
+    1500, 850, 1500   # Leg 6
+]
+
+hardware.initialize_pwm_values(initial_pwm_values_hanging) ##
 
 # # Debug output for test cases
 # hardware.debug_log("******************************************************", level=2)
 # 
-# # # # Test Case 1: Normal command with 3 servos
-# test_command = "#SET_PWM[0,800,1,800,2,800]"
-# communication.process_command(test_command)
-# 
-# hardware.debug_log("******************************************************", level=2)
+# Test Case 1: Normal command with 3 servos
 
-# 
-# # # Test Case 2: Command with servos in random order
-# test_command = "#SET_PWM[0,2000,1,2000,2,2000]"
+
+test_command = "#SET_PWM[0,1000,1,1900,2,1000,3,1000,4,1900,5,1000,6,2000,7,850,8,2000,9,1800,10,850,11,2000]"
 # communication.process_command(test_command)
 # 
-# # Test Case 2: Command with servos in random order
-test_command = "#SET_PWM[0,1500,1,1500,2,1500]"
+#test_command = "#SET_PWM[0,2000,1,800,2,2000,3,2000,4,800,5,2000,6,850,7,2000,8,850,9,850,10,2000,11,850]"
 communication.process_command(test_command)
-# 
-# 
-# # Test Case 1: Normal command with 3 servos
-# test_command = "#SET_PWM[0,800,2,800]"
-# communication.process_command(test_command)
-# 
-# # # Test Case 2: Command with servos in random order
-# test_command = "#SET_PWM[0,2000,2,2000]"
-# communication.process_command(test_command)
-# 
-# # # Test Case 2: Command with servos in random order
-# test_command = "#SET_PWM[0,1500,2,1500]"
-# communication.process_command(test_command)
+
+
+
+#set all servos to hangig-stand positon to avoid fast movements
+test_command = "#SET_PWM[0,1500,1,850,2,1500,3,1500,4,850,5,1500,6,1500,7,2100,8,1500,9,1500,10,2100,11,1500]"
+communication.process_command(test_command)
+
 
 
 def main():
@@ -100,4 +97,5 @@ def main():
 # Run the main loop if executed directly
 if __name__ == "__main__":
     main()
+
 

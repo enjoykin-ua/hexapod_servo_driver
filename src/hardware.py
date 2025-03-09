@@ -7,7 +7,7 @@ from plasma import WS2812
 from servo import Servo, ServoCluster, servo2040
 
 # Constants
-NUM_SERVOS = 3  # Total servos on the hexapod (set to 3 for testing)
+NUM_SERVOS = 18  # Total servos on the hexapod (set to 3 for testing)
 SAMPLES = 50
 UPDATES = 1000 / 50  # 50Hz update rate
 
@@ -18,7 +18,7 @@ cur_adc = Analog(servo2040.SHARED_ADC, servo2040.CURRENT_GAIN, servo2040.SHUNT_R
 led_bar = WS2812(servo2040.NUM_LEDS, 1, 0, servo2040.LED_DATA)
 
 START_PIN = servo2040.SERVO_1
-END_PIN = servo2040.SERVO_3
+END_PIN = servo2040.SERVO_18
 servos = [Servo(i) for i in range(START_PIN, END_PIN + 1)]
 
 
