@@ -1,0 +1,8 @@
+build/*
+_deps/
+CMakeCache.txt
+CMakeFiles/
+*.o
+*.elf
+
+!build/hexapod_servo_driver.uf2
