@@ -95,10 +95,88 @@ def generate_uart_commands():
     
     return commands
 
+pose_hanging = [
+    ["leg_1", 0, -78, 0],
+    ["leg_3", 0, -75, 0],
+    ["leg_4", -7, 80, 0],
+    ["leg_6", 0, 80, 10]  
+]
+
+pose_1 = [
+    ["leg_1", 0, 0, 30],  # leg_1: Coxa = 0°, Femur = 0°, Tibia = 30°
+    ["leg_3", 0, 0, -30], # leg_3: Coxa = 0°, Femur = 0°, Tibia = -30°
+    ["leg_4", 0, 0, -30], # leg_4: Coxa = 0°, Femur = 0°, Tibia = -30°
+    ["leg_6", 0, 0, 30]   # leg_6: Coxa = 0°, Femur = 0°, Tibia = 30°
+]
+
+pose_01 = [
+    ["leg_1", 45, 10, 90],  # leg_1: Coxa = 0°, Femur = 0°, Tibia = 30°
+    ["leg_3", 30, 10, 90],  # leg_1: Coxa = 0°, Femur = 0°, Tibia = 30°
+    ["leg_4", -30, 0, -90],  # leg_1: Coxa = 0°, Femur = 0°, Tibia = 30°
+    ["leg_6", -45, 0, -90],  # leg_1: Coxa = 0°, Femur = 0°, Tibia = 30°
+]
+
+#this is first
+pose_02 = [
+    ["leg_1", 0, 10, 0],  # leg_1: Coxa = 0°, Femur = 0°, Tibia = 30°
+    ["leg_3", 0, 10, 0],  # leg_1: Coxa = 0°, Femur = 0°, Tibia = 30°
+    ["leg_4", -7, 0, 0],  # leg_1: Coxa = 0°, Femur = 0°, Tibia = 30°
+    ["leg_6", 0, 0, 0],  # leg_1: Coxa = 0°, Femur = 0°, Tibia = 30°
+]
+
+
+
+def go_to_pose(pose_array, steps, steps_interval_ms):
+    """Move the Hexapod to a new pose with a smooth transition using sinusoidal interpolation."""
+    import math
+
+    for step in range(steps + 1):
+        factor = 0.5 * (1 - math.cos(math.pi * step / steps))  # Sinusoidal interpolation factor
+        print(f"Step {step}/{steps}, Interpolation Factor: {factor}")
+
+        for pose in pose_array:
+            leg_name, coxa_target, femur_target, tibia_target = pose
+            leg = hexapod.legs.get(leg_name)
+            if not leg:
+                print(f"Error: {leg_name} not found!")
+                continue
+
+            # Update each servo's set position gradually
+            for servo, target_angle, servo_name in zip([leg.coxa, leg.femur, leg.tibia], 
+                                                       [coxa_target, femur_target, tibia_target], 
+                                                       ["coxa", "femur", "tibia"]):
+                old_position = servo.actual_position
+                servo.set_position = servo.actual_position + factor * (target_angle - servo.actual_position)
+
+                # Calculate the corresponding pulse width
+                servo.calculated_pulse = int(
+                    servo.min_pulse +
+                    ((servo.set_position - servo.min_angle) /
+                    (servo.max_angle - servo.min_angle)) *
+                    (servo.max_pulse - servo.min_pulse)
+                )
+
+                 # **Update actual position**
+                servo.actual_position = servo.set_position
+
+
+
+
+                print(f"{leg_name} {servo_name}: Old Pos = {old_position}°, New Pos = {servo.set_position}°, Pulse = {servo.calculated_pulse} µs")
+
+        # Generate and send commands at each step
+        uart_commands = generate_uart_commands()
+        for cmd in uart_commands:
+            print(f"Sending UART Command: {cmd}")
+            send_uart_command(cmd)
+
+        time.sleep(steps_interval_ms / 1000)  # Wait for next step
+
+
 
 if __name__ == "__main__":
     # cd pico/hexapod_servo_driver/python_tests/
-    # python3 python_leg_test.py 
+    # python3 python_leg_test.py
     init()
     init_uart()
     print("################")
@@ -111,11 +189,16 @@ if __name__ == "__main__":
     uart_commands = generate_uart_commands()
     
     # Print and send generated UART commands
-    for cmd in uart_commands:
-        #print(cmd)
-        send_uart_command(cmd)
-        time.sleep(1)  # 200ms delay
+    # for cmd in uart_commands:
+    #     #print(cmd)
+    #     send_uart_command(cmd)
+    #     time.sleep(1)  # 200ms delay
     
+    go_to_pose(pose_01, steps=300, steps_interval_ms=5)
+    
+    go_to_pose(pose_02, steps=300, steps_interval_ms=5)
+
+    go_to_pose(pose_hanging, steps=300, steps_interval_ms=5)
     # Close UART connection at the end
     ser.close()
     print("UART connection closed.")
