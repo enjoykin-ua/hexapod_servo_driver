@@ -131,13 +131,13 @@
                         "pin": 9,
                         "length_mm": 40,
 
-                        "min_angle": 90,
+                        "min_angle": -90,
                         "mid_angle": 0,
-                        "max_angle": -90,
+                        "max_angle": 90,
 
-                        "max_pulse": 2090,
+                        "max_pulse": 750,
                         "middle_pulse": 1410,
-                        "min_pulse": 750,
+                        "min_pulse": 2090,
 
                         "offset_angle": 0,
                         "init_position": {"hanging": 0, "ground": 0}
@@ -146,13 +146,13 @@
                         "pin": 10,
                         "length_mm": 50,
 
-                        "min_angle": 90,
+                        "min_angle": -90,
                         "mid_angle": 0,
-                        "max_angle": -90,
+                        "max_angle": 90,
 
-                        "max_pulse": 2130,
+                        "max_pulse": 790,
                         "middle_pulse": 1450,
-                        "min_pulse": 790,
+                        "min_pulse": 2130,
                         
                         "offset_angle": 0,
                         "init_position": {"hanging": -90, "ground": 0}
@@ -165,9 +165,9 @@
                         "mid_angle": 0,
                         "max_angle": 90,
 
-                        "max_pulse": 2100,
+                        "max_pulse": 810,
                         "middle_pulse": 1480,
-                        "min_pulse": 810,
+                        "min_pulse": 2100,
                         "offset_angle": 0,
                         "init_position": {"hanging": 0, "ground": 0}
                     }
@@ -184,13 +184,13 @@
                         "pin": 15,
                         "length_mm": 40,
 
-                        "min_angle": 90,
+                        "min_angle": -90,
                         "mid_angle": 0,
-                        "max_angle": -90,
+                        "max_angle": 90,
 
-                        "max_pulse": 2135,
+                        "max_pulse": 810,
                         "middle_pulse": 1480,
-                        "min_pulse": 810,
+                        "min_pulse": 2135,
 
                         "offset_angle": 0,
                         "init_position": {"hanging": 0, "ground": 0}
@@ -199,13 +199,13 @@
                         "pin": 16,
                         "length_mm": 50,
 
-                        "min_angle": 90,
+                        "min_angle": -90,
                         "mid_angle": 0,
-                        "max_angle": -90,
+                        "max_angle": 90,
 
-                        "max_pulse": 2120,
+                        "max_pulse": 820,
                         "middle_pulse": 1460,
-                        "min_pulse": 820,
+                        "min_pulse": 2120,
 
                         "offset_angle": 0,
                         "init_position": {"hanging": -90, "ground": 0}
@@ -218,9 +218,9 @@
                         "mid_angle": 0,
                         "max_angle": 90,
 
-                        "max_pulse": 2200,
+                        "max_pulse": 885,
                         "middle_pulse": 1550,
-                        "min_pulse": 885,
+                        "min_pulse": 2200,
 
                         "offset_angle": 0,
                         "init_position": {"hanging": 0, "ground": 0}

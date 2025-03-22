@@ -1,3 +1,4 @@
+import time
 from Hexapod_object import Hexapod
 from uart_communication import UARTCommunication
 from kinematic_movements import KinematicMovements
@@ -143,13 +144,17 @@ def main():
     #kinematics.go_multiple_to_pose(hexapod, pose_init_start, steps=300, steps_interval_ms=12)
     input("Press Enter for next movement...")   
 
-    print("\nTesting XYZ coordinate movements...")
-    kinematics.go_to_xyz_position(hexapod, xyz_test_01, steps=300, steps_interval_ms=12)
-    input("Press Enter for next XYZ movement...")
-    kinematics.go_to_xyz_position(hexapod, xyz_test_02, steps=300, steps_interval_ms=12)
-    input("Press Enter for next XYZ movement...")
-    # kinematics.go_to_xyz_position(hexapod, xyz_test_03, steps=300, steps_interval_ms=12)
-    # input("Press Enter for next XYZ movement...")   
+    for i in range(3):        
+        #print("\nTesting XYZ coordinate movements...")
+        kinematics.go_to_xyz_position(hexapod, xyz_test_01, steps=300, steps_interval_ms=12)
+        time.sleep(2)  # 200ms delay
+        #input("Press Enter for next XYZ movement...")
+        kinematics.go_to_xyz_position(hexapod, xyz_test_02, steps=300, steps_interval_ms=12)
+        time.sleep(2)  # 200ms delay
+        #input("Press Enter for next XYZ movement...")
+        kinematics.go_to_xyz_position(hexapod, xyz_test_03, steps=300, steps_interval_ms=12)
+        time.sleep(2)  # 200ms delay
+        #input("Press Enter for next XYZ movement...")   
 
     # Return to hanging position
     kinematics.go_multiple_to_pose(hexapod, pose_hanging, steps=300, steps_interval_ms=12)
