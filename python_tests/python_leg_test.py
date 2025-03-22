@@ -80,19 +80,25 @@ def generate_uart_commands():
     return commands
 
 def generate_multiple_uart_command():
-    """Generates a single UART command packet for setting multiple servo pulse widths."""
+    """Generates a single UART command packet for setting multiple servo pulse widths.
+    Only includes servos that still need to move (position difference > threshold)."""
     command = bytearray()  # Use bytearray for better byte handling
     command.append(0x55)   # COMMAND_START
     command.append(0x07)   # CMD_SET_SERVO_PULSES
 
-    # Collect all servo data
+    # Collect servo data only for servos that need to move
     servo_data = bytearray()
+    max_position_diff = 0.1  # Maximum allowed difference to consider position reached
+
     for leg_name, leg in hexapod.legs.items():
         for servo_name in ["coxa", "femur", "tibia"]:
             servo = getattr(leg, servo_name)
-            pulse_bytes = struct.pack("<f", servo.calculated_pulse)  # Convert float to bytes (Little-Endian)
-            servo_data.append(servo.pin)  # Add servo pin
-            servo_data.extend(pulse_bytes)  # Add 4-byte pulse width
+            
+            # Only include servo if it hasn't reached its target position yet
+            if not servo.servo_reached_position:
+                pulse_bytes = struct.pack("<f", servo.calculated_pulse)  # Convert float to bytes (Little-Endian)
+                servo_data.append(servo.pin)  # Add servo pin
+                servo_data.extend(pulse_bytes)  # Add 4-byte pulse width
 
     # Total number of servos (must be set AFTER counting them)
     total_servos = len(servo_data) // 5  # Each servo has 5 bytes (pin + 4 float)
@@ -105,8 +111,8 @@ def generate_multiple_uart_command():
 pose_hanging = [
     ["leg_1", 0, -78, 0],
     ["leg_3", 0, -75, 0],
-    ["leg_4", -7, 80, 0],
-    ["leg_6", 0, 80, 10]  
+    ["leg_4", -7, -80, 0],
+    ["leg_6", 0, -80, 10]  
 ]
 
 pose_1 = [
@@ -119,8 +125,8 @@ pose_1 = [
 pose_01 = [
     ["leg_1", 45, 10, 90],  # leg_1: Coxa = 0°, Femur = 0°, Tibia = 30°
     ["leg_3", 30, 10, 90],  # leg_1: Coxa = 0°, Femur = 0°, Tibia = 30°
-    ["leg_4", -30, 0, -90],  # leg_1: Coxa = 0°, Femur = 0°, Tibia = 30°
-    ["leg_6", -45, 0, -90],  # leg_1: Coxa = 0°, Femur = 0°, Tibia = 30°
+    ["leg_4", -30, 0, 90],  # leg_1: Coxa = 0°, Femur = 0°, Tibia = 30°
+    ["leg_6", -45, 0, 90],  # leg_1: Coxa = 0°, Femur = 0°, Tibia = 30°
 ]
 
 #this is first
@@ -131,6 +137,34 @@ pose_02 = [
     ["leg_6", 0, 0, 0],  # leg_1: Coxa = 0°, Femur = 0°, Tibia = 30°
 ]
 
+
+pose_lg_01 = [
+    ["leg_1", 0, 0,   0],  
+    ["leg_1", 0, 17, 80],  
+    ["leg_1", 0, 0,  90],  
+    ["leg_1", 0, 48, 68],  
+]
+
+pose_lg_03 = [
+    ["leg_3", 0, 0,   0],  
+    ["leg_3", 0, 17, 80],  
+    ["leg_3", 0, 0,  90],  
+    ["leg_3", 0, 48, 68],  
+]
+
+pose_lg_04 = [
+    ["leg_4", 0, 0,   0],  
+    ["leg_4", 0, 17, 80],  
+    ["leg_4", 0, 0,  90],  
+    ["leg_4", 0, 48, 68],  
+]
+
+pose_lg_06 = [
+    ["leg_6", 0, 0,   0],  
+    ["leg_6", 0, 17, 80],  
+    ["leg_6", 0, 0,  90],  
+    ["leg_6", 0, 48, 68],  
+]
 
 
 def go_to_pose(pose_array, steps, steps_interval_ms):
@@ -191,6 +225,7 @@ def go_multiple_to_pose(pose_array, steps, steps_interval_ms):
         all_targets_reached = True  # Flag to check if all servos reached their targets
         max_position_diff = 0.1  # Maximum allowed difference to consider position reached
 
+        # First, update all servo positions
         for pose in pose_array:
             leg_name, coxa_target, femur_target, tibia_target = pose
             leg = hexapod.legs.get(leg_name)
@@ -202,35 +237,69 @@ def go_multiple_to_pose(pose_array, steps, steps_interval_ms):
             for servo, target_angle, servo_name in zip([leg.coxa, leg.femur, leg.tibia], 
                                                        [coxa_target, femur_target, tibia_target], 
                                                        ["coxa", "femur", "tibia"]):
-                old_position = servo.actual_position
+                # Calculate new position
                 new_position = servo.actual_position + factor * (target_angle - servo.actual_position)
-                servo.set_position = new_position
-
-                # Calculate the corresponding pulse width
-                servo.calculated_pulse = int(
-                    servo.min_pulse +
-                    ((servo.set_position - servo.min_angle) /
-                    (servo.max_angle - servo.min_angle)) *
-                    (servo.max_pulse - servo.min_pulse)
-                )
-
-                # Update actual position
-                servo.actual_position = servo.set_position
-
-                # Check if this servo has reached its target
+                
+                # Only update if the position difference is significant
                 position_diff = abs(target_angle - servo.actual_position)
                 if position_diff > max_position_diff:
+                    servo.set_position = new_position
+                    servo.actual_position = new_position  # Update actual position
+                    # Calculate the corresponding pulse width
+                    servo.calculated_pulse = int(
+                        servo.min_pulse +
+                        ((servo.set_position - servo.min_angle) /
+                        (servo.max_angle - servo.min_angle)) *
+                        (servo.max_pulse - servo.min_pulse)
+                    )
+                    servo.servo_reached_position = False  # Reset flag as servo needs to move
                     all_targets_reached = False
+                else:
+                    # If target is reached, update actual position to target
+                    servo.set_position = target_angle
+                    servo.actual_position = target_angle
+                    # Calculate final pulse width
+                    final_pulse = int(
+                        servo.min_pulse +
+                        ((target_angle - servo.min_angle) /
+                        (servo.max_angle - servo.min_angle)) *
+                        (servo.max_pulse - servo.min_pulse)
+                    )
+                    # Only set flag to True if we've sent the final pulse
+                    if servo.calculated_pulse == final_pulse:
+                        servo.servo_reached_position = True
+                    else:
+                        servo.calculated_pulse = final_pulse
+                        servo.servo_reached_position = False
+                        all_targets_reached = False
 
-                print(f"{leg_name} {servo_name}: Old Pos = {old_position}°, New Pos = {servo.set_position}°, Pulse = {servo.calculated_pulse} µs")
+        # Generate and send command only if there are servos that need to move
+        if not all_targets_reached:
+            uart_command = generate_multiple_uart_command()
+            if len(uart_command) > 3:  # Only send if there are servos to move
+                # Create debug output showing servo pins and their pulse values
+                debug_output = []
+                for pose in pose_array:
+                    leg_name, coxa_target, femur_target, tibia_target = pose
+                    leg = hexapod.legs.get(leg_name)
+                    if not leg:
+                        continue
 
-        # Generate and send single command for all servos
-        uart_command = generate_multiple_uart_command()
-        #print(f"Sending UART Command: {uart_command}")
-        print("Sending UART Command:", uart_command.hex(" "))  # Zeigt saubere Hex-Werte
-
-
-        send_uart_command(uart_command)
+                    for servo, target_angle, servo_name in zip([leg.coxa, leg.femur, leg.tibia], 
+                                                               [coxa_target, femur_target, tibia_target], 
+                                                               ["coxa", "femur", "tibia"]):
+                        if not servo.servo_reached_position:  # Only show servos that haven't reached their target
+                            # Calculate desired end pulse using target_angle
+                            desired_pulse = int(
+                                servo.min_pulse +
+                                ((target_angle - servo.min_angle) /
+                                (servo.max_angle - servo.min_angle)) *
+                                (servo.max_pulse - servo.min_pulse)
+                            )
+                            debug_output.append(f"[{servo.pin}, {servo.calculated_pulse}, {desired_pulse} {servo.servo_reached_position}]")
+                
+                print("Sending UART Command:", " ".join(debug_output))
+                send_uart_command(uart_command)
 
         # If all targets are reached, we can skip the remaining steps
         if all_targets_reached:
@@ -253,7 +322,7 @@ if __name__ == "__main__":
 
     print("################")
 
-    uart_commands = generate_uart_commands()
+    #uart_commands = generate_uart_commands()
     
     # Print and send generated UART commands
     # for cmd in uart_commands:
@@ -264,16 +333,43 @@ if __name__ == "__main__":
     # Test the single servo go to pose
     # go_to_pose(pose_01, steps=300, steps_interval_ms=5)
     # go_to_pose(pose_02, steps=300, steps_interval_ms=5)
-    # go_to_pose(pose_hanging, steps=300, steps_interval_ms=5)
+    go_multiple_to_pose(pose_hanging, steps=300, steps_interval_ms=12)
 
     # Test the new multiple servo command function
     print("Testing go_multiple_to_pose...")
     go_multiple_to_pose(pose_01, steps=300, steps_interval_ms=10)
-    go_multiple_to_pose(pose_02, steps=300, steps_interval_ms=10)
-    go_multiple_to_pose(pose_hanging, steps=300, steps_interval_ms=10)
+    go_multiple_to_pose(pose_02, steps=300, steps_interval_ms=12)
+    
+
+    # for leg in pose_lg_01:
+    #     go_multiple_to_pose([leg], steps=300, steps_interval_ms=10)
+    #     time.sleep(2) 
+
+    # for leg in pose_lg_03:
+    #     go_multiple_to_pose([leg], steps=300, steps_interval_ms=10)
+    #     time.sleep(2) 
+
+    # for leg in pose_lg_04:
+    #     go_multiple_to_pose([leg], steps=300, steps_interval_ms=10)
+    #     time.sleep(2)
+
+    # for leg in pose_lg_06:
+    #     go_multiple_to_pose([leg], steps=300, steps_interval_ms=10)
+    #     time.sleep(2) 
+    
+    print("posen fertig!")
 
 
-
+    go_multiple_to_pose(pose_hanging, steps=300, steps_interval_ms=12)
     # Close UART connection at the end
     ser.close()
     print("UART connection closed.")
+
+
+
+
+#✅ Definiere ROS 2 Nachrichten und Services
+#✅ Implementiere eine einfache Beinbewegung mit Inverser Kinematik
+#✅ Teste eine Bewegung direkt am echten Hexapod
+#✅ Implementiere einen ersten Gang (z.B. Tripod Gait)
+#✅ Falls nötig: Rückmeldung vom Servo2040 einbauen

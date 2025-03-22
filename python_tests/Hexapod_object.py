@@ -2,24 +2,27 @@ import json
 
 class Servo:
     """Class representing a servo motor for a Hexapod joint."""
-    def __init__(self, pin, length_mm, min_angle, mid_angle, max_angle, min_pulse, middle_pulse, max_pulse, init_position):
+    def __init__(self, pin, length_mm, min_angle, mid_angle, max_angle, 
+                 min_pulse, middle_pulse, max_pulse, init_position, offset_angle):
         self.pin = pin
         self.length_mm = length_mm
         self.min_angle = min_angle
-        self.mid_angle = mid_angle  # Neutral position angle
+        self.mid_angle = mid_angle
         self.max_angle = max_angle
         self.min_pulse = min_pulse
-        self.middle_pulse = middle_pulse  # Center pulse width
+        self.middle_pulse = middle_pulse
         self.max_pulse = max_pulse
         self.init_position = init_position  # {"hanging": x, "ground": y}
+        self.offset_angle = offset_angle  
         
         # Runtime variables
         self.actual_position = init_position  # Set to initial position at start
         self.set_position = None  # Target position in radians
         self.calculated_pulse = None  # Calculated pulse width for movement
+        self.servo_reached_position = True  # Flag to track if servo has reached its target position
     
     def __repr__(self):
-        return f"Servo(pin={self.pin}, length={self.length_mm}mm, angle_range=[{self.min_angle}, {self.max_angle}], actual_position={self.actual_position})"
+        return f"Servo(pin={self.pin}, length={self.length_mm}mm, angle_range=[{self.min_angle}, {self.max_angle}], offset={self.offset_angle}°, actual_position={self.actual_position})"
 
 class Leg:
     """Class representing a single leg of a Hexapod."""
