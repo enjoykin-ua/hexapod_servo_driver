@@ -55,10 +55,10 @@ pose_hanging = [
 ]
 
 pose_init_start = [
-    ["leg_1", 0, 80, 65],
-    ["leg_3", 0, 80, 65],
-    ["leg_4", 0, 80, -65],
-    ["leg_6", 0, 80, -65]  
+    ["leg_1", 0, 80, 30],
+    ["leg_3", 0, 80, 30],
+    ["leg_4", 0, 80, 30],
+    ["leg_6", 0, 80, 30]  
 ]
 
 pose_1 = [
@@ -93,10 +93,18 @@ xyz_test_01 = [
 
 xyz_test_02 = [
     # leg_name, x, y, z (in mm)
-    ["leg_1", 70.0, 0.0, -30.0],  # Forward and down
-    ["leg_3", 70.0, 0.0, -30.0],  # Forward and down
-    ["leg_4", 70.0, 0.0, -30.0],  # Forward and down
-    ["leg_6", 70.0, 0.0, -30.0],  # Forward and down
+    ["leg_1", 70.0, 0.0, -70.0],  # Forward and down
+    ["leg_3", 70.0, 0.0, -70.0],  # Forward and down
+    ["leg_4", 70.0, 0.0, -70.0],  # Forward and down
+    ["leg_6", 70.0, 0.0, -70.0],  # Forward and down
+]
+
+xyz_test_02_1 = [
+    # leg_name, x, y, z (in mm)
+    ["leg_1", 70.0, 0.0, -50.0],  # Forward and down
+    ["leg_3", 70.0, 0.0, -50.0],  # Forward and down
+    ["leg_4", 70.0, 0.0, -50.0],  # Forward and down
+    ["leg_6", 70.0, 0.0, -50.0],  # Forward and down
 ]
 
 xyz_test_03 = [
@@ -124,7 +132,7 @@ def main():
 
     # Normal operation continues here
     # Initialize Hexapod
-    hexapod = Hexapod("configuration.json", init_mode="hanging")
+    hexapod = Hexapod("configuration.json", init_mode="ground")
     print("Hexapod initialized.")
 
     # Initialize Kinematic Movements
@@ -132,32 +140,41 @@ def main():
 
     print("################")
     # Go to initial position
-    kinematics.go_to_init_position(hexapod)
+    #kinematics.go_to_init_position(hexapod)
     print("################")
 
     # Execute movement sequence
     print("Testing angle-based movements...")
-    kinematics.go_multiple_to_pose(hexapod, pose_hanging, steps=300, steps_interval_ms=12)
+
+    init_poosition = pose_init_start
+
+    kinematics.go_multiple_to_pose(hexapod, init_poosition, steps=300, steps_interval_ms=12)
     # kinematics.go_multiple_to_pose(hexapod, pose_01, steps=300, steps_interval_ms=12)
     # kinematics.go_multiple_to_pose(hexapod, pose_02, steps=300, steps_interval_ms=12)
     
     #kinematics.go_multiple_to_pose(hexapod, pose_init_start, steps=300, steps_interval_ms=12)
     input("Press Enter for next movement...")   
 
-    for i in range(3):        
+    
+
+    for i in range(1):        
         #print("\nTesting XYZ coordinate movements...")
-        kinematics.go_to_xyz_position(hexapod, xyz_test_01, steps=300, steps_interval_ms=12)
-        time.sleep(2)  # 200ms delay
+        #kinematics.go_to_xyz_position(hexapod, xyz_test_01, steps=300, steps_interval_ms=12)
+        #time.sleep(2)  # 200ms delay
         #input("Press Enter for next XYZ movement...")
         kinematics.go_to_xyz_position(hexapod, xyz_test_02, steps=300, steps_interval_ms=12)
         time.sleep(2)  # 200ms delay
         #input("Press Enter for next XYZ movement...")
-        kinematics.go_to_xyz_position(hexapod, xyz_test_03, steps=300, steps_interval_ms=12)
+        kinematics.go_to_xyz_position(hexapod, xyz_test_02_1, steps=300, steps_interval_ms=12)
+        time.sleep(2)  # 200ms delay
+        kinematics.go_to_xyz_position(hexapod, xyz_test_02, steps=300, steps_interval_ms=12)
+        time.sleep(2)  # 200ms delay
+        kinematics.go_to_xyz_position(hexapod, xyz_test_02_1, steps=300, steps_interval_ms=12)
         time.sleep(2)  # 200ms delay
         #input("Press Enter for next XYZ movement...")   
 
     # Return to hanging position
-    kinematics.go_multiple_to_pose(hexapod, pose_hanging, steps=300, steps_interval_ms=12)
+    kinematics.go_multiple_to_pose(hexapod, init_poosition, steps=300, steps_interval_ms=12)
 
     print("All movements finished!")
 

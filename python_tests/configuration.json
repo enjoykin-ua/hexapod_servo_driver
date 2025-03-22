@@ -43,7 +43,7 @@
 
                         "offset_angle": 0,
 
-                        "init_position": {"hanging": -90, "ground": 0}
+                        "init_position": {"hanging": -90, "ground": 80}
                     },
                     "tibia": {
                         "pin": 2,
@@ -59,7 +59,7 @@
 
                         "offset_angle": 0,
 
-                        "init_position": {"hanging": 0, "ground": 0}
+                        "init_position": {"hanging": 0, "ground": 30}
                     }
                 }
             },
@@ -100,7 +100,7 @@
 
                         "offset_angle": 0,
 
-                        "init_position": {"hanging": -90, "ground": 0}
+                        "init_position": {"hanging": -90, "ground": 80}
                     },
                     "tibia": {
                         "pin": 8,
@@ -116,7 +116,7 @@
 
                         "offset_angle": 0,
 
-                        "init_position": {"hanging": 0, "ground": 0}
+                        "init_position": {"hanging": 0, "ground": 30}
                     }
                 }
             },
@@ -155,7 +155,7 @@
                         "min_pulse": 2130,
                         
                         "offset_angle": 0,
-                        "init_position": {"hanging": -90, "ground": 0}
+                        "init_position": {"hanging": -90, "ground": 80}
                     },
                     "tibia": {
                         "pin": 11,
@@ -169,7 +169,7 @@
                         "middle_pulse": 1480,
                         "min_pulse": 2100,
                         "offset_angle": 0,
-                        "init_position": {"hanging": 0, "ground": 0}
+                        "init_position": {"hanging": 0, "ground": 30}
                     }
                 }
             },
@@ -208,7 +208,7 @@
                         "min_pulse": 2120,
 
                         "offset_angle": 0,
-                        "init_position": {"hanging": -90, "ground": 0}
+                        "init_position": {"hanging": -90, "ground": 80}
                     },
                     "tibia": {
                         "pin": 17,
@@ -223,7 +223,7 @@
                         "min_pulse": 2200,
 
                         "offset_angle": 0,
-                        "init_position": {"hanging": 0, "ground": 0}
+                        "init_position": {"hanging": 0, "ground": 30}
                     }
                 }
             }    
