@@ -12,8 +12,13 @@ def inverse_kinematics(leg: Leg, x: float, y: float, z: float) -> tuple:
 
     :return: Tuple with (Coxa angle, Femur angle, Tibia angle) in radians.
     """
+    # Check if this is an inverted leg (min_angle > max_angle)
+    is_inverted = leg.coxa.min_angle > leg.coxa.max_angle
+
     # 1️⃣ Compute the Coxa angle (rotation in the XY plane)
     theta1 = math.atan2(y, x)  # Coxa rotates the leg towards the target position
+    if is_inverted:
+        theta1 = -theta1  # Invert the angle for inverted legs
     theta1 += math.radians(leg.coxa.offset_angle)  # Apply Coxa offset correction
 
     # 2️⃣ Compute the projected 2D distance for Femur & Tibia calculations
@@ -28,11 +33,15 @@ def inverse_kinematics(leg: Leg, x: float, y: float, z: float) -> tuple:
     theta3 = math.acos((leg.femur.length_mm**2 + leg.tibia.length_mm**2 - D**2) / 
                         (2 * leg.femur.length_mm * leg.tibia.length_mm))
     theta3 = math.pi - theta3  # Adjust orientation
+    if is_inverted:
+        theta3 = -theta3  # Invert the angle for inverted legs
     theta3 += math.radians(leg.tibia.offset_angle)  # Apply Tibia offset correction
 
     # 5️⃣ Compute Femur angle (θ2)
     theta2 = math.atan2(z, d_xy) + math.acos((leg.femur.length_mm**2 + D**2 - leg.tibia.length_mm**2) / 
                                              (2 * leg.femur.length_mm * D))
+    if is_inverted:
+        theta2 = -theta2  # Invert the angle for inverted legs
     theta2 += math.radians(leg.femur.offset_angle)  # Apply Femur offset correction
 
     # 6️⃣ Check joint angle limits and warn if out of range
@@ -40,6 +49,10 @@ def inverse_kinematics(leg: Leg, x: float, y: float, z: float) -> tuple:
     for joint, angle in angles.items():
         min_radians = math.radians(getattr(leg, joint).min_angle)
         max_radians = math.radians(getattr(leg, joint).max_angle)
+        
+        # For inverted legs, swap min and max for comparison
+        if is_inverted:
+            min_radians, max_radians = max_radians, min_radians
 
         if angle < min_radians or angle > max_radians:
             print(f"⚠ WARNING: {leg.name} {joint} angle {math.degrees(angle):.2f}° exceeds limits ({getattr(leg, joint).min_angle}° to {getattr(leg, joint).max_angle}°)!")

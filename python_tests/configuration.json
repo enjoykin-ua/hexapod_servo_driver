@@ -21,9 +21,9 @@
                         "mid_angle": 0,
                         "max_angle": 90,
 
-                        "max_pulse": 2176,
-                        "middle_pulse": 1515,
-                        "min_pulse": 844,
+                        "max_pulse": 2180,
+                        "middle_pulse": 1535,
+                        "min_pulse": 850,
 
                         "offset_angle": 0,
 
@@ -37,13 +37,13 @@
                         "mid_angle": 0,
                         "max_angle": 90,
                        
-                        "max_pulse": 2104,
-                        "middle_pulse": 1455,
-                        "min_pulse": 780,
+                        "max_pulse": 2180,
+                        "middle_pulse": 1540,
+                        "min_pulse": 850,
 
                         "offset_angle": 0,
 
-                        "init_position": {"hanging": -78, "ground": 0}
+                        "init_position": {"hanging": -90, "ground": 0}
                     },
                     "tibia": {
                         "pin": 2,
@@ -53,9 +53,9 @@
                         "mid_angle": 0,
                         "max_angle": 90,
 
-                        "max_pulse": 2118,
-                        "middle_pulse": 1487,
-                        "min_pulse": 809,
+                        "max_pulse": 2140,
+                        "middle_pulse": 1520,
+                        "min_pulse": 830,
 
                         "offset_angle": 0,
 
@@ -78,9 +78,9 @@
                         "mid_angle": 0,
                         "max_angle": 90,
 
-                        "max_pulse": 2156,
-                        "middle_pulse": 1484,
-                        "min_pulse": 835,
+                        "max_pulse": 2160,
+                        "middle_pulse": 1500,
+                        "min_pulse": 840,
 
                         "offset_angle": 0,
 
@@ -94,13 +94,13 @@
                         "mid_angle": 0,
                         "max_angle": 90,
                        
-                        "max_pulse": 2135,
-                        "middle_pulse": 1477,
-                        "min_pulse": 832,
+                        "max_pulse": 2180,
+                        "middle_pulse": 1550,
+                        "min_pulse": 870,
 
                         "offset_angle": 0,
 
-                        "init_position": {"hanging": -75, "ground": 0}
+                        "init_position": {"hanging": -90, "ground": 0}
                     },
                     "tibia": {
                         "pin": 8,
@@ -110,9 +110,9 @@
                         "mid_angle": 0,
                         "max_angle": 90,
 
-                        "max_pulse": 2188,
-                        "middle_pulse": 1500,
-                        "min_pulse": 839,
+                        "max_pulse": 2130,
+                        "middle_pulse": 1485,
+                        "min_pulse": 800,
 
                         "offset_angle": 0,
 
@@ -130,36 +130,44 @@
                     "coxa": {
                         "pin": 9,
                         "length_mm": 40,
+
                         "min_angle": 90,
                         "mid_angle": 0,
                         "max_angle": -90,
-                        "max_pulse": 2163,
-                        "middle_pulse": 1469,
-                        "min_pulse": 800,
+
+                        "max_pulse": 2090,
+                        "middle_pulse": 1410,
+                        "min_pulse": 750,
+
                         "offset_angle": 0,
-                        "init_position": {"hanging": -7, "ground": 0}
+                        "init_position": {"hanging": 0, "ground": 0}
                     },
                     "femur": {
                         "pin": 10,
                         "length_mm": 50,
+
                         "min_angle": 90,
                         "mid_angle": 0,
                         "max_angle": -90,
-                        "max_pulse": 2146,
-                        "middle_pulse": 1472,
-                        "min_pulse": 818,
+
+                        "max_pulse": 2130,
+                        "middle_pulse": 1450,
+                        "min_pulse": 790,
+                        
                         "offset_angle": 0,
-                        "init_position": {"hanging": -80, "ground": 0}
+                        "init_position": {"hanging": -90, "ground": 0}
                     },
                     "tibia": {
                         "pin": 11,
                         "length_mm": 50,
-                        "min_angle": 90,
+
+                        "min_angle": -90,
                         "mid_angle": 0,
-                        "max_angle": -90,
-                        "max_pulse": 2165,
-                        "middle_pulse": 1494,
-                        "min_pulse": 826,
+                        "max_angle": 90,
+
+                        "max_pulse": 2100,
+                        "middle_pulse": 1480,
+                        "min_pulse": 810,
                         "offset_angle": 0,
                         "init_position": {"hanging": 0, "ground": 0}
                     }
@@ -175,38 +183,47 @@
                     "coxa": {
                         "pin": 15,
                         "length_mm": 40,
+
                         "min_angle": 90,
                         "mid_angle": 0,
                         "max_angle": -90,
-                        "max_pulse": 2146,
-                        "middle_pulse": 1468,
-                        "min_pulse": 816,
+
+                        "max_pulse": 2135,
+                        "middle_pulse": 1480,
+                        "min_pulse": 810,
+
                         "offset_angle": 0,
                         "init_position": {"hanging": 0, "ground": 0}
                     },
                     "femur": {
                         "pin": 16,
                         "length_mm": 50,
+
                         "min_angle": 90,
                         "mid_angle": 0,
                         "max_angle": -90,
-                        "max_pulse": 2148,
-                        "middle_pulse": 1473,
-                        "min_pulse": 821,
+
+                        "max_pulse": 2120,
+                        "middle_pulse": 1460,
+                        "min_pulse": 820,
+
                         "offset_angle": 0,
-                        "init_position": {"hanging": -80, "ground": 0}
+                        "init_position": {"hanging": -90, "ground": 0}
                     },
                     "tibia": {
                         "pin": 17,
                         "length_mm": 50,
-                        "min_angle": 90,
+
+                        "min_angle": -90,
                         "mid_angle": 0,
-                        "max_angle": -90,
-                        "max_pulse": 2155,
-                        "middle_pulse": 1494,
-                        "min_pulse": 802,
+                        "max_angle": 90,
+
+                        "max_pulse": 2200,
+                        "middle_pulse": 1550,
+                        "min_pulse": 885,
+
                         "offset_angle": 0,
-                        "init_position": {"hanging": 10, "ground": 0}
+                        "init_position": {"hanging": 0, "ground": 0}
                     }
                 }
             }    
