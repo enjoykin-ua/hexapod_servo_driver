@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
-"""Stage-C smoke tests for the Servo2040 firmware (no servos required).
+"""Stage-C/D smoke tests for the Servo2040 firmware.
 
-Verifies hard-clamp (C.1), watchdog (C.2), soft-ramp (C.3) over USB-CDC
-using only PROTOCOL.md frames — STATE echoes, ERROR_REPORTs, NACKs.
+Stage C (no servos required):
+  Verifies hard-clamp (C.1), watchdog (C.2), soft-ramp (C.3) over USB-CDC
+  using only PROTOCOL.md frames — STATE echoes, ERROR_REPORTs, NACKs.
+
+Stage D (physical servos required):
+  Verifies per-servo-enable with staged boot (50 ms stagger). Needs
+  N real servos connected to outputs 0..N-1.
 
 Usage:
-    python3 tools/test_servo2040.py [/dev/ttyACMx]
+    python3 tools/test_servo2040.py [/dev/ttyACMx] [--servos N]
+
+    --servos N   Run stage-D test with N physical servos on outputs 0..N-1.
+                 Omit or pass 0 to skip (default).
 
 Default port: /dev/ttyACM0. Exit 0 on PASS, non-zero on first FAIL.
 
@@ -407,18 +415,122 @@ def test_soft_ramp(link: Link):
     ok(f"after full ramp: pulses = {DEFAULT_PULSE_MAX} µs")
 
 
+# --- Stage-D test -------------------------------------------------------------
+
+def _pause(link: "Link", manual: bool, msg: str):
+    """In manual mode: print msg, keep watchdog alive with 100 ms pings, wait for Enter."""
+    if not manual:
+        return
+    print(f"     [MANUAL] {msg} — press Enter to continue…", end="", flush=True)
+    # select.select on stdin: 100 ms timeout per iteration so we can keep pinging.
+    while True:
+        r, _, _ = select.select([sys.stdin], [], [], 0.10)
+        if r:
+            sys.stdin.readline()  # consume the Enter key
+            break
+        send_set_targets(link, [DEFAULT_PULSE_ZERO] * NUM_SERVOS)
+    link.drain(0.05)  # clear ACKs from the keep-alive pings
+
+
+def test_per_servo_enable(link: Link, n_servos: int, manual: bool = False):
+    """D.1: staged boot — enable each servo individually with 50 ms stagger.
+
+    Physical check (must be observed on hardware):
+      - Each servo should engage ~50 ms after the previous one.
+      - PSU ammeter should show separate inrush spikes, not one shared peak.
+
+    With --manual: pauses between each sub-step so you can observe exactly
+    where fast movement occurs (snap-to-neutral at enable vs. ramp movement).
+    """
+    mode = " [MANUAL]" if manual else ""
+    step(f"D.1 per-servo-enable: staged boot for {n_servos} servo(s) on outputs 0..{n_servos - 1}{mode}")
+    info("PSU SETUP: servo rail = 6.0 V / current-limit 3.0 A (MG996R: ~500 mA no-load, 2.5 A stall each)")
+    info("PHYSICAL OBSERVATION: servos should engage one by one, ~50 ms apart")
+
+    # Step 1: RESET — all servos disabled, targets at 1500 µs
+    _pause(link, manual, "Step 1: RESET (all servos will be disabled, targets set to 1500 µs)")
+    send_reset(link)
+    time.sleep(0.05)
+    link.drain(0.1)
+    hold_target(link, [DEFAULT_PULSE_ZERO] * NUM_SERVOS, duration_s=0.2)
+    if manual:
+        pulses, _, _, flags = get_state(link)
+        info(f"  after RESET: current=[{pulses[0]}..{pulses[n_servos-1]}] µs, flags=0x{flags:02X}")
+
+    # Step 2: Staged enable — 50 ms between each servo
+    # NOTE: at ENABLE_SERVO the servo snaps to current_pulse_us (= 1500 µs).
+    # If it was physically at a different position, this is intentional and expected.
+    for i in range(n_servos):
+        _pause(link, manual,f"Step 2.{i}: ENABLE_SERVO({i}) — servo {i} will snap to 1500 µs now")
+        seq = send_enable(link, i, True)
+        f = expect_frame(
+            link,
+            lambda s, c, p, _seq=seq: (s == _seq
+                                       and c == CMD_ACK
+                                       and len(p) >= 1
+                                       and p[0] == CMD_ENABLE_SERVO),
+            timeout_s=1.0,
+        )
+        if f is None:
+            fail(f"no ACK for ENABLE_SERVO({i})")
+        ok(f"servo {i}: enabled (ACK received)")
+        if i < n_servos - 1:
+            time.sleep(0.05)
+            send_set_targets(link, [DEFAULT_PULSE_ZERO] * NUM_SERVOS)
+            link.drain(0)
+
+    # Verify status flags
+    _, _, _, flags = get_state(link)
+    expected_disabled_flag = n_servos < NUM_SERVOS
+    has_disabled_flag = bool(flags & STATUS_ANY_SERVO_DISABLED)
+    if has_disabled_flag != expected_disabled_flag:
+        fail(f"ANY_SERVO_DISABLED flag wrong: flags=0x{flags:02X}, "
+             f"expected {'set' if expected_disabled_flag else 'clear'}")
+    ok(f"state flags = 0x{flags:02X} (correct for {n_servos}/{NUM_SERVOS} enabled)")
+
+    # Step 3: Movement test — ramp +300 µs above neutral via soft-ramp
+    # At 2000 µs/s the 300 µs delta takes 150 ms. After 400 ms we should be there.
+    # This is the RAMP — should be slow and smooth, not a snap.
+    _pause(link, manual, "Step 3: SET_TARGETS to 1800 µs — soft-ramp should take ~150 ms, NOT a snap")
+    target = DEFAULT_PULSE_ZERO + 300
+    hold_target(link, [target] * NUM_SERVOS, duration_s=0.4)
+    pulses, _, _, _ = get_state(link)
+    for i in range(n_servos):
+        if pulses[i] < DEFAULT_PULSE_ZERO + 100:
+            fail(f"servo {i} not ramping toward target: current={pulses[i]} µs, "
+                 f"expected ≥ {DEFAULT_PULSE_ZERO + 100}")
+    ok(f"enabled servos at target: [{', '.join(str(pulses[i]) for i in range(n_servos))}] µs")
+
+    # Step 4: Return to neutral, then disable
+    _pause(link, manual, "Step 4: return to 1500 µs (ramp back), then disable all")
+    hold_target(link, [DEFAULT_PULSE_ZERO] * NUM_SERVOS, duration_s=0.4)
+    for i in range(n_servos):
+        send_enable(link, i, False)
+    time.sleep(0.05)
+    link.drain(0.1)
+    send_reset(link)
+    ok(f"all {n_servos} servo(s) returned to neutral and disabled")
+
+
 # --- Main ---------------------------------------------------------------------
 
 def main():
     _self_test_crc()
 
     parser = argparse.ArgumentParser(
-        description="Servo2040 stage-C smoke tests over USB-CDC.")
+        description="Servo2040 stage-C/D smoke tests over USB-CDC.")
     parser.add_argument("tty", nargs="?", default=DEFAULT_TTY,
                         help=f"serial device (default {DEFAULT_TTY})")
+    parser.add_argument("--servos", type=int, default=0, metavar="N",
+                        help="number of physical test servos on outputs 0..N-1 "
+                             "(enables stage-D test, default 0 = skip)")
+    parser.add_argument("--manual", action="store_true",
+                        help="pause between each sub-step of the stage-D test "
+                             "so you can observe physical servo behavior")
     args = parser.parse_args()
 
-    print(f"=== Servo2040 stage-C tests on {args.tty} ===\n")
+    stages = "stage-C" + (f" + stage-D ({args.servos} servo(s))" if args.servos else "")
+    print(f"=== Servo2040 {stages} tests on {args.tty} ===\n")
 
     try:
         link = Link(args.tty)
@@ -431,6 +543,9 @@ def main():
         test_hard_clamp(link)
         test_watchdog(link)
         test_soft_ramp(link)
+        if args.servos > 0:
+            print()
+            test_per_servo_enable(link, args.servos, manual=args.manual)
     except (AssertionError, TimeoutError) as e:
         elapsed = time.monotonic() - t0
         print(f"\n=== X TESTS FAILED after {elapsed:.1f}s: {e} ===")
@@ -443,7 +558,7 @@ def main():
             link.close()
 
     elapsed = time.monotonic() - t0
-    print(f"\n=== OK ALL STAGE-C TESTS PASSED in {elapsed:.1f}s ===")
+    print(f"\n=== OK ALL {stages.upper()} TESTS PASSED in {elapsed:.1f}s ===")
 
 
 if __name__ == "__main__":
