@@ -32,6 +32,23 @@ namespace cfg {
 
     // Onboard WS2812 LED count.
     constexpr uint32_t NUM_LEDS = 6;
+
+    // ------------------------------------------------------------------------
+    // Stage E — current / voltage sensing thresholds
+    //
+    // The Servo2040 ADC mux exposes a *single* CURRENT_SENSE_ADDR for the
+    // total rail current — no per-servo sensing in hardware. The thresholds
+    // below are for the 2× MG996R bench test (6.0 V PSU). Re-tune for the
+    // full 18-servo robot in Phase 10.
+    // ------------------------------------------------------------------------
+    constexpr uint32_t TOTAL_CURRENT_MAX_MA  = 3500;  // 2× MG996R: ~1 A normal, ~5 A dual-stall
+    constexpr uint16_t UNDERVOLTAGE_WARN_MV  = 5500;  // 6.0 V nominal → 5.5 V warn (-8%)
+    constexpr uint16_t UNDERVOLTAGE_CRIT_MV  = 5000;  // → 5.0 V crit (-17%)
+
+    // Sample current + voltage every N ticks (N=5 @ 100 Hz tick = 20 Hz sense rate).
+    constexpr uint8_t  SENSE_SAMPLE_EVERY_TICKS = 5;
+    // IIR low-pass: smooth = (smooth*7 + sample) / 8  → 1/8 weight on new sample.
+    // Time constant ≈ 8 samples / 20 Hz = 400 ms.
 }  // namespace cfg
 
 // ----------------------------------------------------------------------------
@@ -44,7 +61,8 @@ namespace cmd {
     constexpr uint8_t STATE_RESPONSE  = 0x82;
 
     // 0x10-0x1F: servo configuration
-    constexpr uint8_t SET_CALIBRATION = 0x10;
+    constexpr uint8_t SET_CALIBRATION  = 0x10;
+    constexpr uint8_t SET_CURRENT_LIMIT = 0x11;  // payload: u16 LE mA (overrides TOTAL_CURRENT_MAX_MA until power cycle)
 
     // 0x20-0x2F: servo enable/disable
     constexpr uint8_t ENABLE_SERVO    = 0x20;
@@ -88,6 +106,7 @@ namespace status {
     constexpr uint8_t WATCHDOG_TRIPPED              = 1u << 0;
     constexpr uint8_t UNDERVOLTAGE_TRIPPED          = 1u << 1;
     constexpr uint8_t TOTAL_OVERCURRENT_TRIPPED     = 1u << 2;
-    constexpr uint8_t ANY_SERVO_OVERCURRENT_TRIPPED = 1u << 3;
+    constexpr uint8_t ANY_SERVO_OVERCURRENT_TRIPPED = 1u << 3;  // reserved (no per-servo sense HW)
     constexpr uint8_t ANY_SERVO_DISABLED            = 1u << 4;
+    constexpr uint8_t UNDERVOLTAGE_WARNING          = 1u << 5;  // warn-only, no servo disable
 }  // namespace status

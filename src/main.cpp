@@ -1,26 +1,29 @@
 #include <stdio.h>
+#include <algorithm>
 
 #include "pico/stdlib.h"
 #include "servo2040.hpp"
+#include "analog.hpp"
+#include "analogmux.hpp"
 
 #include "config.hpp"
 #include "proto/frame.hpp"
 
 // =============================================================================
-// Phase 7 Stage C.3 — hard-clamp + watchdog + soft-ramp + ServoCluster
+// Phase 7 Stage E — current / voltage sensing + total-current + undervoltage trip
 //
 // Implemented:
-//   - C.0: COBS+CRC frame layer, 100 Hz non-blocking main loop, GET_STATE, RESET
-//   - C.1: ServoCluster init for all 18 channels, per-servo pulse_min/max/zero
-//          (defaults), SET_TARGETS with hard-clamp, ENABLE_SERVO
-//   - C.2: Watchdog — disables all servos after 200 ms without a valid frame,
-//          sends unsolicited ERROR_REPORT, cleared by RESET
-//   - C.3: Soft-ramp — limits pulse change to MAX_DELTA_PULSE_PER_TICK_US per
-//          tick; current chases target at 2000 µs/s @ 100 Hz
+//   - C.0–C.3: COBS+CRC, 100 Hz loop, hard-clamp, watchdog, soft-ramp
+//   - D.1:    Per-servo ENABLE_SERVO with staged boot (host-driven, 50 ms stagger)
+//   - E.1:    Total rail current trip (TOTAL_CURRENT_MAX_MA, hardware does NOT
+//             expose per-servo current — only total via CURRENT_SENSE_ADDR mux)
+//   - E.2:    Undervoltage warn (UNDERVOLTAGE_WARN_MV, auto-clearing) + critical
+//             trip (UNDERVOLTAGE_CRIT_MV, RESET to clear)
 //
 // NOT YET implemented (later stages):
 //   - SET_CALIBRATION (stage F) / SET_LED / SET_LEDS_ALL / GET_INPUTS (stage G+)
-//   - Current / voltage sensing (stage E)
+//   - Per-servo stall detection via software (would need pulse-vs-target chase
+//     timing; deferred to Phase 10 if needed)
 // =============================================================================
 
 namespace {
@@ -43,6 +46,23 @@ uint8_t out_buf[proto::MAX_FRAME_LEN_WIRE];
 
 // ServoCluster pointer — set in main() once the cluster is live.
 servo::ServoCluster* g_servos = nullptr;
+
+// Stage E — ADC mux + analog sensing.
+pimoroni::AnalogMux* g_mux       = nullptr;
+pimoroni::Analog*    g_cur_sense = nullptr;
+pimoroni::Analog*    g_vol_sense = nullptr;
+
+// IIR-smoothed total rail current (mA). Stored as 32-bit to keep the
+// (smooth*7 + sample) intermediate within range; cast to uint16 for GET_STATE.
+uint32_t rail_current_ma_smooth = 0;
+bool     sense_seeded           = false;
+uint8_t  sense_tick_counter     = 0;
+uint8_t  sense_warmup_samples   = 0;  // gate trip logic until filter has settled
+
+// Runtime-overridable current trip threshold. Initialised from the compile-time
+// default but can be lowered (e.g. by tests) via SET_CURRENT_LIMIT. Resets to
+// the compile-time default on power cycle, NOT on RESET.
+uint32_t runtime_current_max_ma = cfg::TOTAL_CURRENT_MAX_MA;
 
 // Watchdog: armed only after the first valid frame is received, so the
 // board doesn't trip immediately at boot before a host has a chance to
@@ -144,7 +164,21 @@ void handle_reset(uint8_t seq) {
     if (g_servos) g_servos->load();
     // Disarm watchdog (a fresh RESET is the recovery path from a trip).
     watchdog_armed = false;
-    status_flags   = status::ANY_SERVO_DISABLED;
+    // Clear all trip flags; ANY_SERVO_DISABLED stays set (everything is disabled now).
+    // UNDERVOLTAGE_WARNING is auto-managed by the sense loop so we leave it alone.
+    status_flags = status::ANY_SERVO_DISABLED |
+                   (status_flags & status::UNDERVOLTAGE_WARNING);
+    // Reset the IIR-smoothed rail current AND re-arm the warmup gate.
+    // Otherwise a stale post-trip value (~τ = 400 ms to decay) would re-trip
+    // TOTAL_OVERCURRENT on the very next sense tick after RESET clears the
+    // flag — even though the actual rail current already dropped to 0 mA
+    // once the trip disabled all servos. Resetting `sense_warmup_samples`
+    // additionally suppresses trip checks for the next 8 samples (400 ms),
+    // giving the IIR plenty of time to re-seed with the fresh ADC reading
+    // and the user time to release a stalled test servo.
+    rail_current_ma_smooth = 0;
+    sense_seeded           = false;
+    sense_warmup_samples   = 0;
     send_ack(seq, cmd::RESET);
 }
 
@@ -176,15 +210,33 @@ void handle_set_targets(uint8_t seq, const uint8_t* p, uint8_t len) {
     }
 }
 
+void handle_set_current_limit(uint8_t seq, const uint8_t* p, uint8_t len) {
+    if (len != 2) {
+        send_error(seq, err::PAYLOAD_LEN, 0, 2);
+        return;
+    }
+    uint16_t limit_ma = static_cast<uint16_t>(p[0]) | (static_cast<uint16_t>(p[1]) << 8);
+    runtime_current_max_ma = limit_ma;
+    send_ack(seq, cmd::SET_CURRENT_LIMIT);
+}
+
 void handle_enable_servo(uint8_t seq, const uint8_t* p, uint8_t len) {
     if (len != 2) {
         send_error(seq, err::PAYLOAD_LEN, 0, 2);
         return;
     }
-    // PROTOCOL.md §6: while WATCHDOG_TRIPPED is set, ENABLE_SERVO is
-    // refused — host must send RESET first.
+    // PROTOCOL.md §6: while any latched trip is set, ENABLE_SERVO is refused —
+    // host must send RESET first (and fix the underlying cause).
     if (status_flags & status::WATCHDOG_TRIPPED) {
         send_nack(seq, cmd::ENABLE_SERVO, err::WATCHDOG_TRIPPED);
+        return;
+    }
+    if (status_flags & status::TOTAL_OVERCURRENT_TRIPPED) {
+        send_nack(seq, cmd::ENABLE_SERVO, err::TOTAL_OVERCURRENT);
+        return;
+    }
+    if (status_flags & status::UNDERVOLTAGE_TRIPPED) {
+        send_nack(seq, cmd::ENABLE_SERVO, err::UNDERVOLTAGE);
         return;
     }
     uint8_t idx = p[0];
@@ -221,6 +273,9 @@ void dispatch(const proto::Frame& f) {
             return;
         case cmd::ENABLE_SERVO:
             handle_enable_servo(f.seq, f.payload, f.len);
+            return;
+        case cmd::SET_CURRENT_LIMIT:
+            handle_set_current_limit(f.seq, f.payload, f.len);
             return;
 
         // Stages F (calibration) / later (LEDs, inputs)
@@ -275,7 +330,81 @@ void on_tick() {
     }
     g_servos->load();
 
-    // Stage E (current/voltage sensing) → here.
+    // -------------------------------------------------------------------------
+    // E.1/E.2 — Current + voltage sensing (every SENSE_SAMPLE_EVERY_TICKS ticks)
+    // -------------------------------------------------------------------------
+    if (!g_mux || !g_cur_sense || !g_vol_sense) return;
+    if (++sense_tick_counter < cfg::SENSE_SAMPLE_EVERY_TICKS) return;
+    sense_tick_counter = 0;
+
+    // ---- Current ----
+    g_mux->select(servo::servo2040::CURRENT_SENSE_ADDR);
+    float current_a = g_cur_sense->read_current();
+    if (current_a < 0.0f) current_a = 0.0f;
+    uint16_t current_ma_sample = static_cast<uint16_t>(
+        std::min(current_a * 1000.0f, 65535.0f));
+
+    if (!sense_seeded) {
+        rail_current_ma_smooth = current_ma_sample;
+        sense_seeded = true;
+    } else {
+        // IIR: smooth = (smooth * 7 + sample) / 8   → α = 1/8
+        rail_current_ma_smooth =
+            (rail_current_ma_smooth * 7u + current_ma_sample) >> 3;
+    }
+    // Store total rail current in slot 0; slots 1..17 stay zero (no per-servo HW).
+    last_current_ma[0] = static_cast<uint16_t>(rail_current_ma_smooth);
+
+    // ---- Voltage ----
+    g_mux->select(servo::servo2040::VOLTAGE_SENSE_ADDR);
+    float voltage_v = g_vol_sense->read_voltage();
+    if (voltage_v < 0.0f) voltage_v = 0.0f;
+    rail_voltage_mv = static_cast<uint16_t>(
+        std::min(voltage_v * 1000.0f, 65535.0f));
+
+    // ---- Trip logic — gated until the filter has settled (~8 samples = 400 ms) ----
+    if (sense_warmup_samples < 8) {
+        ++sense_warmup_samples;
+        return;
+    }
+
+    // E.1 — total current trip (latched, RESET to clear).
+    if (!(status_flags & status::TOTAL_OVERCURRENT_TRIPPED) &&
+        rail_current_ma_smooth > runtime_current_max_ma) {
+        for (uint i = 0; i < NUM_SERVOS; ++i) {
+            g_servos->disable(static_cast<uint8_t>(i), /*load=*/false);
+            servo_enabled[i] = false;
+        }
+        g_servos->load();
+        status_flags |= status::TOTAL_OVERCURRENT_TRIPPED | status::ANY_SERVO_DISABLED;
+        send_error(0, err::TOTAL_OVERCURRENT, 0,
+                   static_cast<int16_t>(rail_current_ma_smooth & 0x7FFF));
+    }
+
+    // E.2 — undervoltage warn (auto-clearing) + critical trip (latched).
+    if (rail_voltage_mv < cfg::UNDERVOLTAGE_CRIT_MV &&
+        !(status_flags & status::UNDERVOLTAGE_TRIPPED)) {
+        for (uint i = 0; i < NUM_SERVOS; ++i) {
+            g_servos->disable(static_cast<uint8_t>(i), /*load=*/false);
+            servo_enabled[i] = false;
+        }
+        g_servos->load();
+        status_flags |= status::UNDERVOLTAGE_TRIPPED | status::ANY_SERVO_DISABLED;
+        send_error(0, err::UNDERVOLTAGE, 0,
+                   static_cast<int16_t>(rail_voltage_mv & 0x7FFF));
+    } else if (rail_voltage_mv < cfg::UNDERVOLTAGE_WARN_MV) {
+        if (!(status_flags & status::UNDERVOLTAGE_WARNING)) {
+            status_flags |= status::UNDERVOLTAGE_WARNING;
+            // Send a one-shot warn so the host knows immediately, even if it
+            // isn't polling GET_STATE.  servo_idx = 0xFF marks "warn, not trip".
+            send_error(0, err::UNDERVOLTAGE, 0xFF,
+                       static_cast<int16_t>(rail_voltage_mv & 0x7FFF));
+        }
+    } else {
+        // Voltage healthy again — auto-clear the warning. (The latched
+        // UNDERVOLTAGE_TRIPPED bit still needs an explicit RESET.)
+        status_flags &= ~status::UNDERVOLTAGE_WARNING;
+    }
 }
 
 }  // namespace
@@ -311,9 +440,28 @@ int main() {
     servos.init();
     g_servos = &servos;
 
+    // Init ADC mux + analog sensing (Stage E).
+    // mux drives ADDR_0/1/2; CURRENT_SENSE_ADDR=0b111, VOLTAGE_SENSE_ADDR=0b110.
+    // Both Analog instances read SHARED_ADC (GPIO29) — the mux picks which signal
+    // sits on that pin at any given time.
+    static pimoroni::AnalogMux mux(servo::servo2040::ADC_ADDR_0,
+                                   servo::servo2040::ADC_ADDR_1,
+                                   servo::servo2040::ADC_ADDR_2,
+                                   PIN_UNUSED,
+                                   servo::servo2040::SHARED_ADC);
+    static pimoroni::Analog cur_sense(servo::servo2040::SHARED_ADC,
+                                      servo::servo2040::CURRENT_GAIN,
+                                      servo::servo2040::SHUNT_RESISTOR,
+                                      servo::servo2040::CURRENT_OFFSET);
+    static pimoroni::Analog vol_sense(servo::servo2040::SHARED_ADC,
+                                      servo::servo2040::VOLTAGE_GAIN);
+    g_mux       = &mux;
+    g_cur_sense = &cur_sense;
+    g_vol_sense = &vol_sense;
+
     // Banner — keep "Servo2040 USB-UART Communication Started" prefix
     // so tools/flash_and_verify.py keeps matching.
-    printf("Servo2040 USB-UART Communication Started (vC.3 soft-ramp)\n");
+    printf("Servo2040 USB-UART Communication Started (vE total-current + undervoltage)\n");
 
     proto::FrameAssembler decoder;
     proto::Frame frame;
