@@ -1,8 +1,31 @@
+# --- Build artifacts ---
 build/*
 _deps/
 CMakeCache.txt
 CMakeFiles/
 *.o
 *.elf
+*.elf.map
+*.bin
+*.hex
+*.dis
 
-!build/hexapod_servo_driver.uf2
+# Keep the firmware binary itself (committed so the Pi can flash without rebuild)
+!build/Hexapod_servo_driver.uf2
+
+# --- Python tooling (tools/, python_tests/) ---
+__pycache__/
+*.pyc
+*.pyo
+
+# --- IDE / Editors ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# --- Backups / ad-hoc ---
+*.bak
+*.backup
