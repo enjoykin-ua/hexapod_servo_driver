@@ -6,6 +6,16 @@
 // ----------------------------------------------------------------------------
 // Servo pin range — from Pimoroni servo2040.hpp
 // ----------------------------------------------------------------------------
+// Wiring convention (Phase 7 stage F; host-side, NOT enforced here):
+//   pin 0,1,2    → leg 1 (front-right)  coxa, femur, tibia
+//   pin 3,4,5    → leg 2 (mid-right)    coxa, femur, tibia
+//   pin 6,7,8    → leg 3 (back-right)   coxa, femur, tibia
+//   pin 9,10,11  → leg 4 (back-left)    coxa, femur, tibia
+//   pin 12,13,14 → leg 5 (mid-left)     coxa, femur, tibia
+//   pin 15,16,17 → leg 6 (front-left)   coxa, femur, tibia
+// Canonical mapping incl. direction/calibration: contrib/servo_mapping.yaml
+// The firmware deliberately knows nothing about joints — it only sees indices.
+// ----------------------------------------------------------------------------
 constexpr uint START_PIN  = servo::servo2040::SERVO_1;
 constexpr uint END_PIN    = servo::servo2040::SERVO_18;
 constexpr uint NUM_SERVOS = (END_PIN - START_PIN) + 1;

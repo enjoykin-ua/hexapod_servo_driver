@@ -1,0 +1,111 @@
+# =============================================================================
+# Servo2040 output → hexapod joint mapping (Phase 7 stage F — placeholder)
+# =============================================================================
+#
+# Phase 7 deliverable: skeleton with the right *structure* and Phase-10-tunable
+# placeholder values. The host-side conversion joint-rad → pulse-µs lives in
+# Phase 9 (`hexapod_hardware`) and reads THIS file.
+#
+# This file lives in the firmware repo for now because the firmware repo is the
+# canonical source for "what is wired where". It will be COPIED (not moved) to
+# `hexapod_ws/src/hexapod_hardware/config/servo_mapping.yaml` in Phase 9.
+#
+# -----------------------------------------------------------------------------
+# Pin convention (decided 2026-05-14 with user)
+# -----------------------------------------------------------------------------
+# 18 Servo2040 outputs, 3 per leg, sequential:
+#   pin 0,1,2    → leg 1  (front-right)
+#   pin 3,4,5    → leg 2  (mid-right)
+#   pin 6,7,8    → leg 3  (back-right)
+#   pin 9,10,11  → leg 4  (back-left)
+#   pin 12,13,14 → leg 5  (mid-left)
+#   pin 15,16,17 → leg 6  (front-left)
+#
+# Within each leg the joints are ordered coxa → femur → tibia:
+#   coxa  = lowest pin of the triple  (hip swing,   rotates around Z)
+#   femur = middle pin of the triple  (upper leg,   raises/lowers, around Y)
+#   tibia = highest pin of the triple (lower leg,   knee bend,     around Y)
+#
+# Leg layout (matches docs/00_conventions.md §base_link):
+#         +X (front)
+#            ▲
+#   leg_6 ───┼─── leg_1
+#       \    │    /
+#  leg_5 ───[base]── leg_2          +Y (left)
+#       /    │    \
+#   leg_4 ───┼─── leg_3
+#
+# -----------------------------------------------------------------------------
+# `direction` convention
+# -----------------------------------------------------------------------------
+# +1: a positive pulse-µs delta (away from pulse_zero) drives the joint in
+#     the SAME direction as a positive URDF joint angle.
+# -1: a positive pulse-µs delta drives the joint OPPOSITE to the URDF angle.
+#
+# Why this matters: left-side and right-side legs are mirrored on the chassis.
+# Same physical motion (e.g. lifting the foot) requires opposite *servo*
+# rotation on left vs right legs. The `direction` field encodes that mirror.
+#
+# Phase 10 calibration determines the actual signs per servo by manual jog
+# (joint_value_publisher → observe direction → flip sign if needed). All
+# directions below are +1 placeholders — DO NOT TRUST until calibrated.
+#
+# -----------------------------------------------------------------------------
+# Pulse calibration (pulse_min / pulse_max / pulse_zero, all in µs)
+# -----------------------------------------------------------------------------
+# Phase 7 defaults = generous standard-servo range:
+#   pulse_min  = 500   (most servos accept; will be tightened in Phase 10 to
+#                       avoid mechanical interference with the chassis)
+#   pulse_max  = 2500  (same — Phase 10 tightens per geometry)
+#   pulse_zero = 1500  (mid-point; Phase 10 sets the actual neutral-stance pose)
+#
+# Firmware applies these as a hard-clamp (Stage C.1). Out-of-range targets
+# from the host are clamped and an ERROR_REPORT/PULSE_OUT_OF_RANGE is emitted.
+#
+# =============================================================================
+
+version: 1
+phase: 7
+status: placeholder        # Phase-10 calibration replaces this with `calibrated`
+calibrated_at: null        # ISO-8601 timestamp set when status = calibrated
+
+defaults:
+  pulse_min:  500
+  pulse_max:  2500
+  pulse_zero: 1500
+  direction:  1
+
+# Output index 0..17 → joint mapping.
+# Any field omitted falls back to `defaults` above (Phase 9 host-side loader
+# is expected to do this merge — the firmware itself ignores this YAML).
+servo2040_output_to_joint:
+
+  # ---- Leg 1 — front-right ----
+  0: { joint: leg_1_coxa_joint  }
+  1: { joint: leg_1_femur_joint }
+  2: { joint: leg_1_tibia_joint }
+
+  # ---- Leg 2 — mid-right ----
+  3: { joint: leg_2_coxa_joint  }
+  4: { joint: leg_2_femur_joint }
+  5: { joint: leg_2_tibia_joint }
+
+  # ---- Leg 3 — back-right ----
+  6: { joint: leg_3_coxa_joint  }
+  7: { joint: leg_3_femur_joint }
+  8: { joint: leg_3_tibia_joint }
+
+  # ---- Leg 4 — back-left ----
+  9:  { joint: leg_4_coxa_joint  }
+  10: { joint: leg_4_femur_joint }
+  11: { joint: leg_4_tibia_joint }
+
+  # ---- Leg 5 — mid-left ----
+  12: { joint: leg_5_coxa_joint  }
+  13: { joint: leg_5_femur_joint }
+  14: { joint: leg_5_tibia_joint }
+
+  # ---- Leg 6 — front-left ----
+  15: { joint: leg_6_coxa_joint  }
+  16: { joint: leg_6_femur_joint }
+  17: { joint: leg_6_tibia_joint }
