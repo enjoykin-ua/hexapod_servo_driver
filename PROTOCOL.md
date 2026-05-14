@@ -237,9 +237,9 @@ SEQ=1, CMD=0x02, LEN=0. Vor COBS (5 Byte):
 
 ### 4.3 ENABLE_SERVO (Servo 5 enable)
 
-SEQ=2, CMD=0x03, LEN=2, PAYLOAD=`05 01`. Vor COBS (7 Byte):
+SEQ=2, CMD=0x20, LEN=2, PAYLOAD=`05 01`. Vor COBS (7 Byte):
 ```
-02 03 02 05 01 CRCL CRCH
+02 20 02 05 01 CRCL CRCH
 ```
 
 ### 4.4 RESET
@@ -290,7 +290,7 @@ Beim Power-On / nach Reset:
    `Servo2040 USB-UART Communication Started…`, später Versionsstring)
 4. Firmware wartet auf Host-Frames
 
-**Host-Pflicht**: explizit `ENABLE_SERVO` (0x03) für jeden Servo, der
+**Host-Pflicht**: explizit `ENABLE_SERVO` (0x20) für jeden Servo, der
 bewegt werden soll. Empfehlung: **gestaffelt mit 50 ms Pause zwischen
 Servos** (siehe Phase-7-Plan Stufe D), um die Inrush-Strom-Peaks der
 18 Servos zeitlich zu trennen — sonst Spitzenlast über PSU-/Akku-Limit.
@@ -306,7 +306,7 @@ Opcode bekannt) empfängt:
 2. `status_flags.WATCHDOG_TRIPPED` wird gesetzt
 3. Optional: `ERROR_REPORT` mit `ERR_WATCHDOG_TRIPPED` (0x40) wird gesendet
 
-**Recovery**: Host sendet `RESET` (0x05) **und danach** `ENABLE_SERVO`
+**Recovery**: Host sendet `RESET` (0x50) **und danach** `ENABLE_SERVO`
 für jeden gewünschten Servo. Ohne `RESET` bleibt der `WATCHDOG_TRIPPED`-
 Flag gesetzt und neue `ENABLE_SERVO`-Frames werden mit `NACK`
 beantwortet.
