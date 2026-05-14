@@ -15,10 +15,13 @@ pico_sdk_init()
 # Define the source files
 set(SOURCES
     src/main.cpp
+    src/proto/crc.cpp
+    src/proto/cobs.cpp
+    src/proto/frame.cpp
 )
 
 # Define the include directories
-include_directories(src src/commands)
+include_directories(src src/commands src/proto src/safety)
 
 # Add source files
 add_executable(${NAME} ${SOURCES})

@@ -1,24 +1,93 @@
-#ifndef CONFIG_HPP
-#define CONFIG_HPP
+#pragma once
 
-// UART config
-#define UART_ID uart1
-#define BAUD_RATE 115200
+#include "pico/stdlib.h"
+#include "servo2040.hpp"
 
-// Commands
-#define CMD_GET_VOLTAGE         0x01
-#define CMD_GET_CURRENT         0x02
+// ----------------------------------------------------------------------------
+// Servo pin range — from Pimoroni servo2040.hpp
+// ----------------------------------------------------------------------------
+constexpr uint START_PIN  = servo::servo2040::SERVO_1;
+constexpr uint END_PIN    = servo::servo2040::SERVO_18;
+constexpr uint NUM_SERVOS = (END_PIN - START_PIN) + 1;
 
-#define CMD_READ_SWITCH         0x03
+// ----------------------------------------------------------------------------
+// Tick & timing (Phase 7 stage C)
+// ----------------------------------------------------------------------------
+namespace cfg {
+    constexpr uint32_t TICK_HZ              = 100;
+    constexpr uint32_t TICK_PERIOD_US       = 1'000'000 / TICK_HZ;  // 10_000 us
+    constexpr uint32_t WATCHDOG_TIMEOUT_MS  = 200;
 
-#define CMD_SET_LED             0x04
-#define CMD_SET_LEDS            0x05
+    // Stage C.3 soft-ramp: max pulse-µs change per tick.
+    // 20 µs/tick @ 100 Hz = 2 000 µs/s — about one full travel/sec.
+    constexpr int16_t MAX_DELTA_PULSE_PER_TICK_US = 20;
 
-#define CMD_SET_SERVO_PULSE     0x06
-#define CMD_SET_SERVO_PULSES    0x07
+    // Default per-servo pulse calibration (SET_CALIBRATION overrides later).
+    constexpr int16_t DEFAULT_PULSE_MIN_US  = 500;
+    constexpr int16_t DEFAULT_PULSE_MAX_US  = 2500;
+    constexpr int16_t DEFAULT_PULSE_ZERO_US = 1500;
 
-// Control bits
-#define COMMAND_START           0x55
-#define COMMAND_END             0xAA
+    // Boot stagger: ms between enabling consecutive servos (stage D).
+    constexpr uint32_t BOOT_STAGGER_MS = 50;
 
-#endif  // CONFIG_HPP
+    // Onboard WS2812 LED count.
+    constexpr uint32_t NUM_LEDS = 6;
+}  // namespace cfg
+
+// ----------------------------------------------------------------------------
+// Wire-protocol opcodes — see PROTOCOL.md §3
+// ----------------------------------------------------------------------------
+namespace cmd {
+    // 0x01-0x0F: servo control + state roundtrip
+    constexpr uint8_t SET_TARGETS     = 0x01;
+    constexpr uint8_t GET_STATE       = 0x02;
+    constexpr uint8_t STATE_RESPONSE  = 0x82;
+
+    // 0x10-0x1F: servo configuration
+    constexpr uint8_t SET_CALIBRATION = 0x10;
+
+    // 0x20-0x2F: servo enable/disable
+    constexpr uint8_t ENABLE_SERVO    = 0x20;
+
+    // 0x30-0x3F: LEDs (6 onboard WS2812)
+    constexpr uint8_t SET_LED         = 0x30;
+    constexpr uint8_t SET_LEDS_ALL    = 0x31;
+
+    // 0x40-0x4F: inputs (sensor pins + USER_SW)
+    constexpr uint8_t GET_INPUTS      = 0x40;
+    constexpr uint8_t INPUTS_RESPONSE = 0xC0;
+
+    // 0x50-0x5F: system
+    constexpr uint8_t RESET           = 0x50;
+
+    // FW -> Host
+    constexpr uint8_t ERROR_REPORT    = 0x7F;
+    constexpr uint8_t NACK            = 0xFE;
+    constexpr uint8_t ACK             = 0xFF;
+}  // namespace cmd
+
+// ----------------------------------------------------------------------------
+// Error codes (used in ERROR_REPORT / NACK reason) — see PROTOCOL.md §3.4
+// ----------------------------------------------------------------------------
+namespace err {
+    constexpr uint8_t FRAME_CRC          = 0x01;
+    constexpr uint8_t FRAME_MALFORMED    = 0x02;
+    constexpr uint8_t UNKNOWN_OPCODE     = 0x03;
+    constexpr uint8_t PAYLOAD_LEN        = 0x04;
+    constexpr uint8_t PULSE_OUT_OF_RANGE = 0x10;
+    constexpr uint8_t SERVO_OVERCURRENT  = 0x20;
+    constexpr uint8_t TOTAL_OVERCURRENT  = 0x21;
+    constexpr uint8_t UNDERVOLTAGE       = 0x30;
+    constexpr uint8_t WATCHDOG_TRIPPED   = 0x40;
+}  // namespace err
+
+// ----------------------------------------------------------------------------
+// Status flag bits (status_flags byte in STATE response) — see PROTOCOL.md §3.1
+// ----------------------------------------------------------------------------
+namespace status {
+    constexpr uint8_t WATCHDOG_TRIPPED              = 1u << 0;
+    constexpr uint8_t UNDERVOLTAGE_TRIPPED          = 1u << 1;
+    constexpr uint8_t TOTAL_OVERCURRENT_TRIPPED     = 1u << 2;
+    constexpr uint8_t ANY_SERVO_OVERCURRENT_TRIPPED = 1u << 3;
+    constexpr uint8_t ANY_SERVO_DISABLED            = 1u << 4;
+}  // namespace status

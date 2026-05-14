@@ -304,7 +304,7 @@ Opcode bekannt) empfängt:
 
 1. Alle Servos werden `disabled`
 2. `status_flags.WATCHDOG_TRIPPED` wird gesetzt
-3. Optional: `ERROR_REPORT` mit `ERR_WATCHDOG_TRIPPED` (0x40) wird gesendet
+3. `ERROR_REPORT` mit `ERR_WATCHDOG_TRIPPED` (0x40) wird gesendet (SEQ=0, unsolicited)
 
 **Recovery**: Host sendet `RESET` (0x50) **und danach** `ENABLE_SERVO`
 für jeden gewünschten Servo. Ohne `RESET` bleibt der `WATCHDOG_TRIPPED`-

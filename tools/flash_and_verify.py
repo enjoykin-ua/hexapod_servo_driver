@@ -212,7 +212,10 @@ def verify_boot_message(tty: str, picotool: str) -> None:
         info(f"received {len(buf)} bytes but no match. Sample: {buf[:120]!r}")
     info("no boot message — trying one reboot to re-trigger")
 
-    res = run([picotool, "reboot"], sudo=True)
+    # Force-reboot via USB into application (-f -a). The board is in
+    # run-mode now, so a plain `picotool reboot` would fail with
+    # "No accessible RP-series devices in BOOTSEL mode".
+    res = run([picotool, "reboot", "-f", "-a"], sudo=True)
     if res.returncode != 0:
         fail(f"picotool reboot retry failed: {res.stderr.strip() or res.stdout.strip()}")
     time.sleep(BOOT_RE_ENUM_WAIT_S)
