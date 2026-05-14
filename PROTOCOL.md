@@ -93,24 +93,49 @@ dann verarbeitet oder verwirft.
 
 ## 3. Kommando-Tabelle
 
+Opcodes sind in Themen-Bereiche gruppiert:
+
+| Bereich | Zweck |
+|---|---|
+| 0x01–0x0F | Servo-Steuerung + State-Roundtrip |
+| 0x10–0x1F | Servo-Konfiguration |
+| 0x20–0x2F | Servo Enable/Disable |
+| 0x30–0x3F | LEDs (6 × WS2812 onboard) |
+| 0x40–0x4F | Inputs (Schalter, Sensoren) |
+| 0x50–0x5F | System (Reset …) |
+| 0x80–0xBF | Antwort-Opcodes (Anfrage-Code OR 0x80) |
+| 0x7F / 0xFE / 0xFF | ERROR_REPORT / NACK / ACK |
+
 | Code | Name              | Richtung      | Payload                                                                 |
 |------|-------------------|---------------|-------------------------------------------------------------------------|
-| 0x01 | `SET_TARGETS`     | Host → FW     | 18 × `int16` LE Pulse-µs (= 36 Byte)                                    |
+| 0x01 | `SET_TARGETS`     | Host → FW     | 18 × `int16` LE Pulse-µs (= 36 B)                                       |
 | 0x02 | `GET_STATE`       | Host → FW     | — (LEN=0)                                                               |
-| 0x82 | `STATE`           | FW → Host     | siehe 3.1                                                               |
-| 0x03 | `ENABLE_SERVO`    | Host → FW     | `servo_idx` (uint8), `enable` (uint8: 0 oder 1)                         |
-| 0x04 | `SET_CALIBRATION` | Host → FW     | `servo_idx` (uint8), `pulse_min` (int16 LE), `pulse_max` (int16 LE), `pulse_zero` (int16 LE) |
-| 0x05 | `RESET`           | Host → FW     | — (LEN=0)                                                               |
-| 0x7F | `ERROR_REPORT`    | FW → Host     | `error_code` (uint8), `servo_idx` (uint8), `aux` (int16 LE)             |
-| 0xFF | `ACK`             | FW → Host     | `original_cmd` (uint8)                                                  |
-| 0xFE | `NACK`            | FW → Host     | `original_cmd` (uint8), `reason` (uint8)                                |
+| 0x82 | `STATE`           | FW → Host     | siehe §3.1 (= 75 B)                                                     |
+| 0x10 | `SET_CALIBRATION` | Host → FW     | `servo_idx` (uint8), `pulse_min` (int16 LE), `pulse_max` (int16 LE), `pulse_zero` (int16 LE) (= 7 B) |
+| 0x20 | `ENABLE_SERVO`    | Host → FW     | `servo_idx` (uint8), `enable` (uint8: 0 oder 1) (= 2 B)                 |
+| 0x30 | `SET_LED`         | Host → FW     | `led_idx` (uint8: 0..5), `R` (uint8), `G` (uint8), `B` (uint8) (= 4 B)  |
+| 0x31 | `SET_LEDS_ALL`    | Host → FW     | 6 × (R, G, B) — alle LEDs in einem Frame (= 18 B)                       |
+| 0x40 | `GET_INPUTS`      | Host → FW     | — (LEN=0)                                                               |
+| 0xC0 | `INPUTS`          | FW → Host     | 1 B Bit-Maske, siehe §3.2                                               |
+| 0x50 | `RESET`           | Host → FW     | — (LEN=0)                                                               |
+| 0x7F | `ERROR_REPORT`    | FW → Host     | `error_code` (uint8), `servo_idx` (uint8), `aux` (int16 LE) (= 4 B)     |
+| 0xFF | `ACK`             | FW → Host     | `original_cmd` (uint8) (= 1 B)                                          |
+| 0xFE | `NACK`            | FW → Host     | `original_cmd` (uint8), `reason` (uint8) (= 2 B)                        |
 
-**Konvention**: Antwort-Opcodes haben Bit 7 gesetzt (0x80 + cmd). Beispiel:
-`STATE` (0x82) ist die Antwort auf `GET_STATE` (0x02). Ausgenommen:
-`ACK`/`NACK`/`ERROR_REPORT` haben feste Codes.
+**Antwort-Konvention**: Antwort-Opcodes setzen Bit 7 vom Anfrage-Code.
+Beispiele: `STATE` (0x82) auf `GET_STATE` (0x02), `INPUTS` (0xC0) auf
+`GET_INPUTS` (0x40). Ausnahmen: `ACK`/`NACK`/`ERROR_REPORT` haben feste
+Codes oben in der Tabelle.
 
 **Endianness**: alle Multi-Byte-Felder Little-Endian (passt zum nativen
 Format auf RP2040 und x86_64).
+
+**Bereich-Reservierungen**:
+- 0x40 ist `GET_INPUTS` (digital — Pimoroni `AnalogMux::read() → bool` mit
+  `configure_pulls()` für Pull-Up am Schalter-Pin).
+- 0x41 ist reserviert für künftiges `GET_SENSORS_ANALOG` (ADC-Raw je
+  Mux-Adresse), falls später Strom-/Sensor-Bauteile statt Schalter dranhängen.
+- 0x32 ist reserviert für `SET_LEDS_RANGE` (Subset von LEDs, falls nötig).
 
 ### 3.1 STATE-Payload (Antwort auf GET_STATE)
 
@@ -135,7 +160,41 @@ Format auf RP2040 und x86_64).
 | 4 | `ANY_SERVO_DISABLED` | mindestens ein Servo aktuell disabled |
 | 5–7 | reserviert | (0) |
 
-### 3.2 Error-Code-Tabelle (für ERROR_REPORT 0x7F)
+### 3.2 INPUTS-Payload (Antwort auf GET_INPUTS)
+
+1 Byte Bit-Maske. Bit gesetzt = aktiv (Schalter geschlossen / gedrückt
+gegen Pull-Up).
+
+| Bit | Quelle | Pin / Mux |
+|---|---|---|
+| 0 | `SENSOR_1` | Mux-Adresse `0b000`, geteilt über GPIO 29 |
+| 1 | `SENSOR_2` | Mux-Adresse `0b001` |
+| 2 | `SENSOR_3` | Mux-Adresse `0b010` |
+| 3 | `SENSOR_4` | Mux-Adresse `0b011` |
+| 4 | `SENSOR_5` | Mux-Adresse `0b100` |
+| 5 | `SENSOR_6` | Mux-Adresse `0b101` |
+| 6 | `USER_SW` | GPIO 23 (Onboard Boot/User-Switch) |
+| 7 | reserviert | (0) |
+
+**Hinweis**: Mux-Adressen `0b110` und `0b111` sind für Voltage-/Current-Sense
+reserviert (siehe §3.1 STATE) und tauchen hier **nicht** auf.
+
+**Pull-Konfiguration**: Firmware konfiguriert beim Boot pro Sensor-Pin
+intern Pull-Up. Schalter sind also gegen GND zu schalten (aktiv = LOW
+am Pin → Bit gesetzt nach Negation in der Firmware).
+
+### 3.3 SET_LED / SET_LEDS_ALL — LED-Range
+
+Onboard sind **6 WS2812 LEDs** (`servo2040.hpp`: `NUM_LEDS = 6`,
+`LED_DATA = GPIO 18`). `led_idx` läuft 0..5. Werte ≥ 6 → `NACK` mit
+`reason = ERR_PAYLOAD_LEN`.
+
+RGB-Reihenfolge: R, G, B (jeweils 0..255). Helligkeit wird **nicht** vom
+Protokoll begrenzt — bei voller Helligkeit aller 6 LEDs auf Weiß zieht
+der LED-Bus ~360 mA aus dem 5 V-Rail (60 mA/LED). Auf USB-Strom achten
+wenn das Board nur über USB versorgt wird.
+
+### 3.4 Error-Code-Tabelle (für ERROR_REPORT 0x7F)
 
 | Code | Name                      | aux-Feld-Bedeutung           |
 |------|---------------------------|------------------------------|
@@ -185,9 +244,38 @@ SEQ=2, CMD=0x03, LEN=2, PAYLOAD=`05 01`. Vor COBS (7 Byte):
 
 ### 4.4 RESET
 
-SEQ=3, CMD=0x05, LEN=0. Vor COBS (5 Byte):
+SEQ=3, CMD=0x50, LEN=0. Vor COBS (5 Byte):
 ```
-03 05 00 CRCL CRCH
+03 50 00 CRCL CRCH
+```
+
+### 4.5 SET_LED (LED 0 auf Rot)
+
+SEQ=4, CMD=0x30, LEN=4, PAYLOAD=`00 FF 00 00` (idx=0, R=255, G=0, B=0).
+Vor COBS (9 Byte):
+```
+04 30 04 00 FF 00 00 CRCL CRCH
+```
+
+### 4.6 SET_LEDS_ALL (alle 6 LEDs auf Grün)
+
+SEQ=5, CMD=0x31, LEN=18, PAYLOAD = 6 × `00 FF 00`. Vor COBS (23 Byte):
+```
+05 31 12 00 FF 00 00 FF 00 00 FF 00 00 FF 00 00 FF
+00 00 FF 00 CRCL CRCH
+```
+
+### 4.7 GET_INPUTS
+
+SEQ=6, CMD=0x40, LEN=0. Vor COBS (5 Byte):
+```
+06 40 00 CRCL CRCH
+```
+
+Antwort z.B. (Schalter 1 + 3 + USER_SW gedrückt → Bitmaske `0b01000101 = 0x45`):
+SEQ=6 (echo), CMD=0xC0, LEN=1, PAYLOAD=`45`. Vor COBS (6 Byte):
+```
+06 C0 01 45 CRCL CRCH
 ```
 
 ---
