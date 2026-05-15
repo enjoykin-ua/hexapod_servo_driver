@@ -1,5 +1,8 @@
-# --- Build artifacts ---
+# --- Top-level Firmware-Build (CMake/Pico-SDK) ---
+# Inhalt von Top-Level build/ ignorieren, fertige UF2 explizit behalten
+# (committed damit der Pi ohne Re-Build flashen kann).
 build/*
+!build/Hexapod_servo_driver.uf2
 _deps/
 CMakeCache.txt
 CMakeFiles/
@@ -10,13 +13,22 @@ CMakeFiles/
 *.hex
 *.dis
 
-# Keep the firmware binary itself (committed so the Pi can flash without rebuild)
-!build/Hexapod_servo_driver.uf2
+# --- colcon-Artefakte ---
+# Dieses Repo ist KEIN ROS-Workspace. Falls dennoch jemand `colcon build`
+# in einem Subdir aufruft (passierte in tools/), legt colcon trotzdem
+# diese drei Verzeichnisse an (mit COLCON_IGNORE-Marker) — alles regenerierbar.
+tools/build/
+tools/install/
+tools/log/
+python_tests/build/
+python_tests/install/
+python_tests/log/
 
-# --- Python tooling (tools/, python_tests/) ---
+# --- Python ---
 __pycache__/
 *.pyc
 *.pyo
+.pytest_cache/
 
 # --- IDE / Editors ---
 .vscode/
@@ -29,3 +41,7 @@ __pycache__/
 # --- Backups / ad-hoc ---
 *.bak
 *.backup
+
+# --- OS-spezifisch ---
+Thumbs.db
+desktop.ini
