@@ -458,8 +458,15 @@ def test_per_servo_enable(link: Link, n_servos: int, manual: bool = False):
         info(f"  after RESET: current=[{pulses[0]}..{pulses[n_servos-1]}] µs, flags=0x{flags:02X}")
 
     # Step 2: Staged enable — 50 ms between each servo
-    # NOTE: at ENABLE_SERVO the servo snaps to current_pulse_us (= 1500 µs).
-    # If it was physically at a different position, this is intentional and expected.
+    # NOTE (Phase 13 FW-Fix): at ENABLE_SERVO the servo activates with the
+    # current commanded target. If a SET_TARGETS was sent earlier while the
+    # pin was disabled, current_pulse_us was synced to target (no soft-ramp
+    # while disabled), so the pin jumps directly to the target on ENABLE.
+    # In this self-test we did Step 1=RESET (target=current=pulse_zero) and
+    # then Step 2=ENABLE without an intermediate SET_TARGETS, so the snap is
+    # still to ~1500 µs. The hexapod_hardware plugin sends SET_TARGETS
+    # between RESET and ENABLE to land directly on the initial-pose pulses
+    # without any horizontal-T-pose intermediate state.
     for i in range(n_servos):
         _pause(link, manual,f"Step 2.{i}: ENABLE_SERVO({i}) — servo {i} will snap to 1500 µs now")
         seq = send_enable(link, i, True)

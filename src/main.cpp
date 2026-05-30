@@ -155,6 +155,14 @@ void handle_get_state(uint8_t seq) {
 }
 
 void handle_reset(uint8_t seq) {
+    // Phase 13 FW-Fix: explicit per-pin disable BEFORE state-reset is
+    // critical. Pimoroni's ServoCluster::pulse() auto-enables the pin on
+    // any value >= MIN_VALID_PULSE — so without this explicit disable,
+    // the very next on_tick would re-enable pins via pulse() and emit
+    // pulse_zero (~1500 µs = horizontal) on physically-powered servos.
+    // The on_tick path also now skips pulse() for disabled pins (see
+    // change in on_tick below), but issuing disable() here additionally
+    // commits PWM-out=0 immediately, not waiting for the next tick.
     for (uint i = 0; i < NUM_SERVOS; ++i) {
         if (g_servos) g_servos->disable(i, false);
         servo_enabled[i]    = false;
@@ -200,6 +208,17 @@ void handle_set_targets(uint8_t seq, const uint8_t* p, uint8_t len) {
             any_clamped       = true;
             first_clamped_idx = static_cast<uint8_t>(i);
             first_clamped_raw = raw;
+        }
+
+        // Phase 13 FW-Fix: while a pin is disabled, soft-ramp in on_tick
+        // is a no-op (we skip pulse() for disabled pins). Sync current to
+        // target so the very first PWM emitted after ENABLE_SERVO is
+        // already at target, not at the pulse_zero stuck in current from
+        // RESET. The actual Pimoroni-state sync (last_enabled_pulse=target)
+        // happens in handle_enable_servo below where we call pulse()
+        // directly instead of enable() — that avoids any MID-fallback.
+        if (!servo_enabled[i]) {
+            current_pulse_us[i] = target_pulse_us[i];
         }
     }
     if (any_clamped) {
@@ -247,8 +266,37 @@ void handle_enable_servo(uint8_t seq, const uint8_t* p, uint8_t len) {
     }
     servo_enabled[idx] = (en != 0);
     if (g_servos) {
-        if (en) g_servos->enable(idx, true);
-        else    g_servos->disable(idx, true);
+        if (en) {
+            // Phase 13 FW-Fix v2 (double-pulse workaround):
+            //
+            // Empirically observed (2026-05-28, diagnose_single_pin_pwm.py):
+            // the FIRST g_servos->pulse() call for a freshly-RESET pin
+            // lands at PWM ≈ 1500 µs (MID), regardless of what value we
+            // pass in. Subsequent pulse() calls hit the correct target.
+            // Root cause not pinpointed in Pimoroni source — likely a
+            // PIO-DMA initialization side-effect or a Pimoroni-internal
+            // "first-write defaults to MID" behaviour we don't see in
+            // the source path.
+            //
+            // Workaround: pulse() twice, with a 20 ms sleep (= one PWM
+            // period at 50 Hz) in between. The first call gets eaten by
+            // whatever causes the MID-glitch; the second call hits the
+            // actual target. Cost: 18 × 20 ms = 360 ms added to on_activate
+            // (total ~1.3 s) — acceptable for one-time boot.
+            //
+            // Cleaner long-term: instrument the PWM pin with an
+            // oscilloscope to identify what really happens on the first
+            // write, then either patch Pimoroni or restructure FW init.
+            g_servos->pulse(idx,
+                            static_cast<float>(current_pulse_us[idx]),
+                            /*load=*/true);
+            sleep_ms(20);
+            g_servos->pulse(idx,
+                            static_cast<float>(current_pulse_us[idx]),
+                            /*load=*/true);
+        } else {
+            g_servos->disable(idx, true);
+        }
     }
     update_disabled_flag();
     send_ack(seq, cmd::ENABLE_SERVO);
@@ -318,15 +366,28 @@ void on_tick() {
     // C.3 — Soft-ramp: limit pulse change per tick to MAX_DELTA_PULSE_PER_TICK_US.
     // No matter how big the host's jump in target is, current chases it at
     // most MAX_DELTA_PULSE_PER_TICK_US per tick (= 2000 µs/s @ 100 Hz default).
+    //
+    // Phase 13 FW-Fix: only emit PWM for enabled pins. Pimoroni's
+    // ServoCluster::pulse(idx, val) calls ServoState::set_pulse_with_return
+    // which auto-enables the pin (sets enabled=true) on any val >=
+    // MIN_VALID_PULSE — see pimoroni-pico/drivers/servo/servo_state.cpp.
+    // Without this servo_enabled[] check we would re-enable pins on every
+    // tick, ignoring handle_enable_servo(false) / watchdog-trip / under-
+    // voltage-trip / handle_reset's intent to keep PWM off.
+    // Soft-ramp still runs on current_pulse_us for disabled pins so that a
+    // later ENABLE_SERVO finds a sane state — but no PWM is emitted until
+    // the pin is explicitly re-enabled.
     constexpr int16_t step = cfg::MAX_DELTA_PULSE_PER_TICK_US;
     for (uint i = 0; i < NUM_SERVOS; ++i) {
         int16_t delta = static_cast<int16_t>(target_pulse_us[i] - current_pulse_us[i]);
         if      (delta >  step) current_pulse_us[i] += step;
         else if (delta < -step) current_pulse_us[i] -= step;
         else                    current_pulse_us[i]  = target_pulse_us[i];
-        g_servos->pulse(static_cast<uint8_t>(i),
-                        static_cast<float>(current_pulse_us[i]),
-                        /*load=*/false);
+        if (servo_enabled[i]) {
+            g_servos->pulse(static_cast<uint8_t>(i),
+                            static_cast<float>(current_pulse_us[i]),
+                            /*load=*/false);
+        }
     }
     g_servos->load();
 

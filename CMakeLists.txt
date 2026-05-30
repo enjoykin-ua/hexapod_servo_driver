@@ -51,6 +51,24 @@ pico_enable_stdio_uart(${NAME} 0)
 # Create map/bin/hex file etc.
 pico_add_extra_outputs(${NAME})
 
+# ============================================================================
+# Phase 13 diagnostic — Pimoroni-only minimal test binary.
+#
+# Separate executable that uses ONLY Pimoroni's ServoCluster API directly.
+# Build target name: test_pimoroni_direct.uf2
+#
+# Flash with:
+#   sudo picotool load build/test_pimoroni_direct.uf2 && sudo picotool reboot
+# ============================================================================
+add_executable(test_pimoroni_direct src/test_pimoroni_direct.cpp)
+target_link_libraries(test_pimoroni_direct
+    pico_stdlib
+    servo2040
+)
+pico_enable_stdio_usb(test_pimoroni_direct 1)
+pico_enable_stdio_uart(test_pimoroni_direct 0)
+pico_add_extra_outputs(test_pimoroni_direct)
+
 # Set up files for the release packages
 install(FILES
     ${CMAKE_CURRENT_BINARY_DIR}/${NAME}.uf2
