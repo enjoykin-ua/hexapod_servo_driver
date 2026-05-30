@@ -20,6 +20,13 @@ constexpr uint START_PIN  = servo::servo2040::SERVO_1;
 constexpr uint END_PIN    = servo::servo2040::SERVO_18;
 constexpr uint NUM_SERVOS = (END_PIN - START_PIN) + 1;
 
+// Phase 13 Stage 0.1 — Relay power-gate on the A0 header (GP26). High-trigger,
+// normally-open relay in the servo V+ rail: GP26 LOW = open = servos unpowered,
+// GP26 HIGH = closed = servos powered. Default LOW (fail-safe). See
+// docs_raspi/phase_13_stage_0_1_relay_plan.md and pimoroni_servo_fix/src/
+// test_relay_power_sequence.cpp.
+constexpr uint RELAY_PIN  = servo::servo2040::ADC0;   // GP26 = A0 header pin
+
 // ----------------------------------------------------------------------------
 // Tick & timing (Phase 7 stage C)
 // ----------------------------------------------------------------------------
@@ -87,6 +94,7 @@ namespace cmd {
 
     // 0x50-0x5F: system
     constexpr uint8_t RESET           = 0x50;
+    constexpr uint8_t RELAY_CONTROL   = 0x51;  // payload: 1 byte (1=on/HIGH, 0=off/LOW)
 
     // FW -> Host
     constexpr uint8_t ERROR_REPORT    = 0x7F;
@@ -119,4 +127,5 @@ namespace status {
     constexpr uint8_t ANY_SERVO_OVERCURRENT_TRIPPED = 1u << 3;  // reserved (no per-servo sense HW)
     constexpr uint8_t ANY_SERVO_DISABLED            = 1u << 4;
     constexpr uint8_t UNDERVOLTAGE_WARNING          = 1u << 5;  // warn-only, no servo disable
+    constexpr uint8_t RELAY_ON                      = 1u << 6;  // Stage 0.1: relay power-gate closed
 }  // namespace status

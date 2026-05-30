@@ -2,6 +2,7 @@
 #include <algorithm>
 
 #include "pico/stdlib.h"
+#include "hardware/gpio.h"
 #include "servo2040.hpp"
 #include "analog.hpp"
 #include "analogmux.hpp"
@@ -70,6 +71,11 @@ uint32_t runtime_current_max_ma = cfg::TOTAL_CURRENT_MAX_MA;
 bool            watchdog_armed = false;
 absolute_time_t last_valid_frame_time;
 
+// Stage 0.1 — relay power-gate state (mirror of GP26). false = LOW = servos
+// unpowered (fail-safe default). Set true only by an explicit RELAY_CONTROL(on)
+// frame; forced false on boot and on every trip/RESET.
+bool relay_on = false;
+
 // -----------------------------------------------------------------------------
 // Frame send helpers
 // -----------------------------------------------------------------------------
@@ -131,6 +137,18 @@ void update_disabled_flag() {
 }
 
 // -----------------------------------------------------------------------------
+// Stage 0.1 — relay power-gate (GP26). Single source of truth for the rail
+// power state: drives the pin, mirrors `relay_on`, and reflects RELAY_ON in
+// status_flags so GET_STATE exposes it without an oscilloscope.
+// -----------------------------------------------------------------------------
+void set_relay(bool on) {
+    gpio_put(RELAY_PIN, on ? 1 : 0);
+    relay_on = on;
+    if (on) status_flags |=  status::RELAY_ON;
+    else    status_flags &= ~status::RELAY_ON;
+}
+
+// -----------------------------------------------------------------------------
 // Command handlers
 // -----------------------------------------------------------------------------
 void handle_get_state(uint8_t seq) {
@@ -170,6 +188,8 @@ void handle_reset(uint8_t seq) {
         current_pulse_us[i] = pulse_zero_us[i];
     }
     if (g_servos) g_servos->load();
+    // Stage 0.1 — fail-safe: RESET means "everything off", so drop the relay too.
+    set_relay(false);
     // Disarm watchdog (a fresh RESET is the recovery path from a trip).
     watchdog_armed = false;
     // Clear all trip flags; ANY_SERVO_DISABLED stays set (everything is disabled now).
@@ -302,6 +322,13 @@ void handle_enable_servo(uint8_t seq, const uint8_t* p, uint8_t len) {
     send_ack(seq, cmd::ENABLE_SERVO);
 }
 
+// Stage 0.1 — RELAY_CONTROL: gate the servo V+ rail. payload[0] != 0 → HIGH.
+void handle_relay_control(uint8_t seq, const uint8_t* p, uint8_t len) {
+    if (len != 1) { send_error(seq, err::PAYLOAD_LEN, 0, 0); return; }
+    set_relay(p[0] != 0);
+    send_ack(seq, cmd::RELAY_CONTROL);
+}
+
 void dispatch(const proto::Frame& f) {
     // Every valid (CRC-checked) frame keeps the watchdog happy.
     last_valid_frame_time = get_absolute_time();
@@ -324,6 +351,9 @@ void dispatch(const proto::Frame& f) {
             return;
         case cmd::SET_CURRENT_LIMIT:
             handle_set_current_limit(f.seq, f.payload, f.len);
+            return;
+        case cmd::RELAY_CONTROL:
+            handle_relay_control(f.seq, f.payload, f.len);
             return;
 
         // Stages F (calibration) / later (LEDs, inputs)
@@ -358,6 +388,7 @@ void on_tick() {
             }
             g_servos->load();
             status_flags |= status::WATCHDOG_TRIPPED | status::ANY_SERVO_DISABLED;
+            set_relay(false);  // Stage 0.1 — fail-safe: depower rail on trip.
             // Unsolicited error report (seq = 0).
             send_error(0, err::WATCHDOG_TRIPPED, 0, 0);
         }
@@ -438,6 +469,7 @@ void on_tick() {
         }
         g_servos->load();
         status_flags |= status::TOTAL_OVERCURRENT_TRIPPED | status::ANY_SERVO_DISABLED;
+        set_relay(false);  // Stage 0.1 — fail-safe: depower rail on trip.
         send_error(0, err::TOTAL_OVERCURRENT, 0,
                    static_cast<int16_t>(rail_current_ma_smooth & 0x7FFF));
     }
@@ -451,6 +483,7 @@ void on_tick() {
         }
         g_servos->load();
         status_flags |= status::UNDERVOLTAGE_TRIPPED | status::ANY_SERVO_DISABLED;
+        set_relay(false);  // Stage 0.1 — fail-safe: depower rail on trip.
         send_error(0, err::UNDERVOLTAGE, 0,
                    static_cast<int16_t>(rail_voltage_mv & 0x7FFF));
     } else if (rail_voltage_mv < cfg::UNDERVOLTAGE_WARN_MV) {
@@ -474,6 +507,15 @@ void on_tick() {
 // Entry point
 // =============================================================================
 int main() {
+    // Stage 0.1 — FIRST thing: drive the relay pin to a defined LOW (servos
+    // unpowered) before anything else, so the floating-input window at boot is
+    // sub-millisecond. Fail-safe: nothing powers the rail until an explicit
+    // RELAY_CONTROL(on) frame arrives.
+    gpio_init(RELAY_PIN);
+    gpio_set_dir(RELAY_PIN, GPIO_OUT);
+    gpio_put(RELAY_PIN, 0);
+    relay_on = false;
+
     stdio_init_all();
 
     // Wait for the host to actually open /dev/ttyACM* before printing the

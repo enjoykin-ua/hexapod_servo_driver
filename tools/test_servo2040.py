@@ -41,14 +41,19 @@ CMD_SET_TARGETS    = 0x01
 CMD_GET_STATE      = 0x02
 CMD_ENABLE_SERVO   = 0x20
 CMD_RESET          = 0x50
+CMD_RELAY_CONTROL  = 0x51  # Stage 0.1: payload 1 byte (1=on, 0=off)
 CMD_STATE_RESP     = 0x82
 CMD_ERROR_REPORT   = 0x7F
 CMD_ACK            = 0xFF
 CMD_NACK           = 0xFE
 
 # Error codes
+ERR_PAYLOAD_LEN        = 0x04
 ERR_PULSE_OUT_OF_RANGE = 0x10
 ERR_WATCHDOG_TRIPPED   = 0x40
+
+# Status flag bits (status_flags byte in STATE response)
+STATUS_RELAY_ON = 1 << 6  # Stage 0.1
 
 # Status flag bits
 STATUS_WATCHDOG_TRIPPED   = 1 << 0
@@ -235,6 +240,12 @@ def send_enable(link: Link, idx: int, enable: bool) -> int:
     return seq
 
 
+def send_relay(link: Link, on: bool) -> int:
+    seq = next_seq()
+    link.write(encode_frame(seq, CMD_RELAY_CONTROL, bytes([1 if on else 0])))
+    return seq
+
+
 def parse_state(payload: bytes):
     pulses   = list(struct.unpack(f"<{NUM_SERVOS}h", payload[:36]))
     currents = list(struct.unpack(f"<{NUM_SERVOS}H", payload[36:72]))
@@ -394,6 +405,17 @@ def test_soft_ramp(link: Link):
         if abs(p - DEFAULT_PULSE_ZERO) > 5:
             fail(f"unexpected init: servo {i} current={p}, want ~{DEFAULT_PULSE_ZERO}")
 
+    # Phase 13 FW-fix: soft-ramp only applies to ENABLED pins. On a disabled
+    # pin, handle_set_targets syncs current=target immediately (no PWM to ramp),
+    # so the rate-limit can only be observed once the servo is enabled. Enable
+    # all 18 first (each ENABLE pulses current=pulse_zero, no jump), THEN test
+    # that the subsequent target jump is rate-limited. NOTE: current_pulse_us is
+    # the firmware's internally-ramped *command*, not servo feedback — the board
+    # has no servo position sensing.
+    for i in range(NUM_SERVOS):
+        send_enable(link, i, True)
+    link.drain(0.1)
+
     # Jump to MAX. Expected ramp speed: 2000 µs/s. After 100 ms: ~200 µs delta.
     send_set_targets(link, [DEFAULT_PULSE_MAX] * NUM_SERVOS)
     time.sleep(0.10)
@@ -521,6 +543,54 @@ def test_per_servo_enable(link: Link, n_servos: int, manual: bool = False):
 
 # --- Main ---------------------------------------------------------------------
 
+def test_relay_control(link: Link):
+    step("0.1 relay: RELAY_CONTROL toggles GP26 + status bit; RESET = fail-safe off")
+
+    # Clean slate: RESET also drops the relay (fail-safe).
+    send_reset(link)
+    time.sleep(0.05)
+    link.drain(0.05)
+    _, _, _, flags = get_state(link)
+    if flags & STATUS_RELAY_ON:
+        fail(f"relay still ON after RESET (flags=0x{flags:02X})")
+    ok("after RESET relay is OFF")
+
+    # Relay ON -> ACK + status bit set.
+    seq = send_relay(link, True)
+    f = expect_frame(link,
+                     lambda s, c, p: s == seq and c == CMD_ACK and p[0] == CMD_RELAY_CONTROL,
+                     timeout_s=1.0)
+    if f is None:
+        fail("no ACK for RELAY_CONTROL(on)")
+    _, _, _, flags = get_state(link)
+    if not (flags & STATUS_RELAY_ON):
+        fail(f"RELAY_ON not set after relay-on (flags=0x{flags:02X})")
+    ok(f"relay ON acked, status flag set (flags=0x{flags:02X})")
+
+    # Relay OFF -> ACK + status bit clear.
+    seq = send_relay(link, False)
+    f = expect_frame(link,
+                     lambda s, c, p: s == seq and c == CMD_ACK and p[0] == CMD_RELAY_CONTROL,
+                     timeout_s=1.0)
+    if f is None:
+        fail("no ACK for RELAY_CONTROL(off)")
+    _, _, _, flags = get_state(link)
+    if flags & STATUS_RELAY_ON:
+        fail(f"RELAY_ON still set after relay-off (flags=0x{flags:02X})")
+    ok("relay OFF acked, status flag cleared")
+
+    # Bad payload length (len=2) -> ERROR_REPORT/PAYLOAD_LEN.
+    seq = next_seq()
+    link.write(encode_frame(seq, CMD_RELAY_CONTROL, b"\x01\x00"))
+    f = expect_frame(link,
+                     lambda s, c, p: s == seq and c == CMD_ERROR_REPORT
+                                     and p[0] == ERR_PAYLOAD_LEN,
+                     timeout_s=1.0)
+    if f is None:
+        fail("expected ERROR_REPORT/PAYLOAD_LEN for RELAY_CONTROL len=2")
+    ok("RELAY_CONTROL with len!=1 correctly rejected (PAYLOAD_LEN)")
+
+
 def main():
     _self_test_crc()
 
@@ -549,6 +619,7 @@ def main():
     try:
         test_hard_clamp(link)
         test_watchdog(link)
+        test_relay_control(link)
         test_soft_ramp(link)
         if args.servos > 0:
             print()
