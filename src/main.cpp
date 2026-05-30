@@ -144,8 +144,17 @@ void update_disabled_flag() {
 void set_relay(bool on) {
     gpio_put(RELAY_PIN, on ? 1 : 0);
     relay_on = on;
-    if (on) status_flags |=  status::RELAY_ON;
-    else    status_flags &= ~status::RELAY_ON;
+    if (on) {
+        status_flags |= status::RELAY_ON;
+        // Stage 0.2 fix: re-arm the sense warmup so the freshly-powered rail
+        // can stabilise (~400 ms) before the UV/OC trips go live again —
+        // otherwise the power-on transient could trip undervoltage. Re-seed the
+        // current IIR too, so it starts from the powered reading (not a stale 0).
+        sense_warmup_samples = 0;
+        sense_seeded         = false;
+    } else {
+        status_flags &= ~status::RELAY_ON;
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -457,6 +466,17 @@ void on_tick() {
     // ---- Trip logic — gated until the filter has settled (~8 samples = 400 ms) ----
     if (sense_warmup_samples < 8) {
         ++sense_warmup_samples;
+        return;
+    }
+
+    // Stage 0.2 fix: the UV/OC trips assume the servo rail is powered. With the
+    // relay OFF the rail reads ~0 V / ~0 mA *by design* — that is NOT a fault.
+    // Only enforce the trips while the relay is intentionally ON. Without this,
+    // the default-OFF relay (0.1 fail-safe) makes the FW trip undervoltage right
+    // after boot and latch-disable all servos, so they never come up even after
+    // the relay is later switched on. Telemetry (above) keeps updating either way.
+    if (!relay_on) {
+        status_flags &= ~status::UNDERVOLTAGE_WARNING;  // clear transient warn
         return;
     }
 
