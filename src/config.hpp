@@ -54,11 +54,15 @@ namespace cfg {
     // Stage E — current / voltage sensing thresholds
     //
     // The Servo2040 ADC mux exposes a *single* CURRENT_SENSE_ADDR for the
-    // total rail current — no per-servo sensing in hardware. The thresholds
-    // below are for the 2× MG996R bench test (6.0 V PSU). Re-tune for the
-    // full 18-servo robot in Phase 10.
+    // total rail current — no per-servo sensing in hardware.
+    // TOTAL_CURRENT_MAX_MA re-tuned 2026-05-31 for the full 18-servo robot
+    // (Diymore 8120MG coxa + Miuzei MS61 femur/tibia); user-chosen 7000 mA,
+    // replaces the old 2× MG996R bench value 3500. Software trip only — the
+    // PSU/wiring/battery must sustain it; keep below the HW-safe maximum.
+    // NOTE: UNDERVOLTAGE_* below are still on the old 6.0 V bench PSU; re-tune
+    // for the 2S-LiPo (7.4 V nom) when that rail is wired (separate change).
     // ------------------------------------------------------------------------
-    constexpr uint32_t TOTAL_CURRENT_MAX_MA  = 3500;  // 2× MG996R: ~1 A normal, ~5 A dual-stall
+    constexpr uint32_t TOTAL_CURRENT_MAX_MA  = 7000;  // 18-servo robot, user-set 2026-05-31 (was 3500)
     constexpr uint16_t UNDERVOLTAGE_WARN_MV  = 5500;  // 6.0 V nominal → 5.5 V warn (-8%)
     constexpr uint16_t UNDERVOLTAGE_CRIT_MV  = 5000;  // → 5.0 V crit (-17%)
 
