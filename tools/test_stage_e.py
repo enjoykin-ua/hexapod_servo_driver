@@ -56,7 +56,7 @@ TEST_CURRENT_LIMIT_MA = 600
 
 # Production threshold restored after the test finishes — keep in sync with
 # cfg::TOTAL_CURRENT_MAX_MA in src/config.hpp.
-PROD_CURRENT_LIMIT_MA = 7000
+PROD_CURRENT_LIMIT_MA = 10000
 
 # ---------------------------------------------------------------------------
 # Stage-E specific constants (must match src/config.hpp + src/config.hpp)
@@ -68,9 +68,9 @@ STATUS_UNDERVOLTAGE_TRIPPED      = 1 << 1
 STATUS_TOTAL_OVERCURRENT_TRIPPED = 1 << 2
 STATUS_UNDERVOLTAGE_WARNING      = 1 << 5
 
-TOTAL_CURRENT_MAX_MA = 7000   # cfg::TOTAL_CURRENT_MAX_MA
-UNDERVOLTAGE_WARN_MV = 5500   # cfg::UNDERVOLTAGE_WARN_MV
-UNDERVOLTAGE_CRIT_MV = 5000   # cfg::UNDERVOLTAGE_CRIT_MV
+TOTAL_CURRENT_MAX_MA = 10000   # cfg::TOTAL_CURRENT_MAX_MA
+UNDERVOLTAGE_WARN_MV = 4500   # cfg::UNDERVOLTAGE_WARN_MV
+UNDERVOLTAGE_CRIT_MV = 4000   # cfg::UNDERVOLTAGE_CRIT_MV
 
 # IIR warmup: 8 samples × 50 ms = 400 ms before trip logic activates.
 SENSE_WARMUP_S = 0.5

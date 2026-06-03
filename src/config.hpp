@@ -55,16 +55,21 @@ namespace cfg {
     //
     // The Servo2040 ADC mux exposes a *single* CURRENT_SENSE_ADDR for the
     // total rail current — no per-servo sensing in hardware.
-    // TOTAL_CURRENT_MAX_MA re-tuned 2026-05-31 for the full 18-servo robot
-    // (Diymore 8120MG coxa + Miuzei MS61 femur/tibia); user-chosen 7000 mA,
-    // replaces the old 2× MG996R bench value 3500. Software trip only — the
-    // PSU/wiring/battery must sustain it; keep below the HW-safe maximum.
+    // TOTAL_CURRENT_MAX_MA = 18-servo robot. 2026-05-31 user-set 10000 mA, damit
+    // der Phase-13-Stage-0.7-Vergleich (altes joint-space-Aufstehen B-T3 zieht
+    // ~10 A) nicht trippt; cartesian-Aufstehen (B-T2) bleibt darunter. War 7000
+    // (und davor 3500, 2× MG996R bench). Software trip only — die PSU/Verkabelung
+    // muss 10 A liefern können; weniger Schutz, bewusst fuer den Mess-Vergleich.
     // NOTE: UNDERVOLTAGE_* below are still on the old 6.0 V bench PSU; re-tune
     // for the 2S-LiPo (7.4 V nom) when that rail is wired (separate change).
     // ------------------------------------------------------------------------
-    constexpr uint32_t TOTAL_CURRENT_MAX_MA  = 7000;  // 18-servo robot, user-set 2026-05-31 (was 3500)
-    constexpr uint16_t UNDERVOLTAGE_WARN_MV  = 5500;  // 6.0 V nominal → 5.5 V warn (-8%)
-    constexpr uint16_t UNDERVOLTAGE_CRIT_MV  = 5000;  // → 5.0 V crit (-17%)
+    constexpr uint32_t TOTAL_CURRENT_MAX_MA  = 10000;  // 18-servo robot, user-set 2026-05-31 (war 7000/3500)
+    // 2026-05-31 user-set auf 4 V herab, damit der Stage-0.7-B-T3-Vergleich
+    // (joint-space-Aufstehen bricht die PSU-Spannung ein) nicht per Undervoltage-
+    // Trip abbricht. ⚠️ 4 V ist UNTER der Servo-Min-Spec (4.8 V) — bewusst nur
+    // fuer den Mess-Vergleich; danach wieder hochsetzen.
+    constexpr uint16_t UNDERVOLTAGE_WARN_MV  = 4500;  // war 5500
+    constexpr uint16_t UNDERVOLTAGE_CRIT_MV  = 4000;  // war 5000 — latched Trip @ 4.0 V
 
     // Sample current + voltage every N ticks (N=5 @ 100 Hz tick = 20 Hz sense rate).
     constexpr uint8_t  SENSE_SAMPLE_EVERY_TICKS = 5;
