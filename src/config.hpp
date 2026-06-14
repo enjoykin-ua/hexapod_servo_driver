@@ -27,6 +27,13 @@ constexpr uint NUM_SERVOS = (END_PIN - START_PIN) + 1;
 // test_relay_power_sequence.cpp.
 constexpr uint RELAY_PIN  = servo::servo2040::ADC0;   // GP26 = A0 header pin
 
+// Switch test (temporary wiring-check). External switch on the A1 header:
+//   switch pin 1 -> 3.3V, switch pin 2 -> A1 (GP27).
+// Read as a plain digital input with the RP2040's internal pull-down enabled,
+// so OPEN = 0 (pulled to GND) and CLOSED = 1 (3.3V). A 0->1 rising edge lights
+// the onboard WS2812 LED bar. GP27 = ADC1 is a free user pin (sensing uses GP29).
+constexpr uint SWITCH_PIN = servo::servo2040::ADC1;   // GP27 = A1 header pin
+
 // ----------------------------------------------------------------------------
 // Tick & timing (Phase 7 stage C)
 // ----------------------------------------------------------------------------

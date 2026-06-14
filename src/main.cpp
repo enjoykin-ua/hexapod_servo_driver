@@ -77,6 +77,17 @@ absolute_time_t last_valid_frame_time;
 bool relay_on = false;
 
 // -----------------------------------------------------------------------------
+// Switch test (temporary) — debounced edge-detect on A1 (GP27) -> LED feedback.
+// Active-high (3.3V + internal pull-down): OPEN = 0, CLOSED = 1. A debounced
+// 0->1 rising edge lights the onboard WS2812 bar green; 1->0 clears it.
+// -----------------------------------------------------------------------------
+plasma::WS2812* g_leds = nullptr;
+constexpr uint8_t SWITCH_DEBOUNCE_TICKS = 2;  // 2 ticks @100 Hz = 20 ms stable
+bool    switch_state_stable = false;          // committed (debounced) state
+bool    switch_last_raw     = false;          // last raw sample
+uint8_t switch_stable_count = 0;              // consecutive stable raw samples
+
+// -----------------------------------------------------------------------------
 // Frame send helpers
 // -----------------------------------------------------------------------------
 void send_frame(uint8_t seq, uint8_t opcode, const uint8_t* payload, uint8_t len) {
@@ -379,10 +390,51 @@ void dispatch(const proto::Frame& f) {
     }
 }
 
+// Set the whole onboard WS2812 bar to one colour (test helper).
+void set_bar(uint8_t r, uint8_t g, uint8_t b) {
+    if (!g_leds) return;
+    for (uint i = 0; i < cfg::NUM_LEDS; ++i) {
+        g_leds->set_rgb(i, r, g, b);
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Switch test (temporary) — poll A1 (GP27), debounce, drive the LED bar.
+// Called both inside the USB-host wait loop and once per tick (100 Hz), so it
+// works standalone on bare USB power with no host attached. The bar shows the
+// debounced switch state as a colour so a powered, running board ALWAYS shows
+// something (no ambiguity with "firmware not running"):
+//   switch OPEN  (0, pulled to GND) -> dim red
+//   switch CLOSED(1, 3.3V via A1)   -> green
+// A debounced 0->1 rising edge is what the real feature will later use; here it
+// just flips the colour. Independent of host protocol / servos.
+// -----------------------------------------------------------------------------
+void poll_switch() {
+    if (!g_leds) return;
+    bool raw = gpio_get(SWITCH_PIN) != 0;
+    if (raw != switch_last_raw) {
+        // Bounce / change in progress — restart the stability counter.
+        switch_last_raw     = raw;
+        switch_stable_count = 0;
+        return;
+    }
+    if (switch_stable_count < SWITCH_DEBOUNCE_TICKS) {
+        ++switch_stable_count;
+        if (switch_stable_count == SWITCH_DEBOUNCE_TICKS &&
+            raw != switch_state_stable) {
+            // Debounced transition committed.
+            switch_state_stable = raw;
+            if (raw) set_bar(0, 80, 0);   // CLOSED (1) -> green
+            else     set_bar(50, 0, 0);   // OPEN   (0) -> dim red
+        }
+    }
+}
+
 // -----------------------------------------------------------------------------
 // Tick
 // -----------------------------------------------------------------------------
 void on_tick() {
+    poll_switch();  // temporary switch-wiring test (independent of servo state)
     if (!g_servos) return;
 
     // C.2 — Watchdog: if armed and no valid frame within the timeout,
@@ -536,12 +588,32 @@ int main() {
     gpio_put(RELAY_PIN, 0);
     relay_on = false;
 
+    // Switch test (temporary): A1 (GP27) as digital input with internal
+    // pull-down -> OPEN reads 0, CLOSED (3.3V) reads 1.
+    gpio_init(SWITCH_PIN);
+    gpio_set_dir(SWITCH_PIN, GPIO_IN);
+    gpio_pull_down(SWITCH_PIN);
+
     stdio_init_all();
+
+    // Switch test (temporary): bring the onboard WS2812 LED bar up EARLY — before
+    // the USB-host wait below — so the switch can be verified standalone, on bare
+    // USB power with no host connected. PIO1/SM0 (ServoCluster owns PIO0, no
+    // conflict). start() launches the auto-refresh DMA timer; set_rgb afterwards
+    // is enough. Start in the OPEN colour (dim red) so a powered, running board
+    // always shows a colour even before the switch is touched.
+    static plasma::WS2812 led_bar(servo::servo2040::NUM_LEDS, pio1, 0,
+                                  servo::servo2040::LED_DATA);
+    led_bar.start();
+    g_leds = &led_bar;
+    set_bar(50, 0, 0);   // OPEN indication at boot (switch_state_stable = false)
 
     // Wait for the host to actually open /dev/ttyACM* before printing the
     // boot banner — otherwise the bytes are lost. The board stays reachable
-    // via picotool throughout this wait.
+    // via picotool throughout this wait. Poll the switch here too, so the LED
+    // test works with NO host attached (standalone bench check).
     while (!stdio_usb_connected()) {
+        poll_switch();
         sleep_ms(50);
     }
     sleep_ms(50);
