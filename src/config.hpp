@@ -57,6 +57,11 @@ namespace cfg {
     // Onboard WS2812 LED count.
     constexpr uint32_t NUM_LEDS = 6;
 
+    // Block F1 — shutdown switch (A1/GP27). The switch must stay OPEN (red) for
+    // at least this long before status::SHUTDOWN_REQUEST (bit 7) is asserted.
+    // Hold-to-confirm against accidental triggers. See F1_fw_switch_bit_plan.md.
+    constexpr uint32_t SHUTDOWN_HOLD_MS = 3000;
+
     // ------------------------------------------------------------------------
     // Stage E — current / voltage sensing thresholds
     //
@@ -144,4 +149,5 @@ namespace status {
     constexpr uint8_t ANY_SERVO_DISABLED            = 1u << 4;
     constexpr uint8_t UNDERVOLTAGE_WARNING          = 1u << 5;  // warn-only, no servo disable
     constexpr uint8_t RELAY_ON                      = 1u << 6;  // Stage 0.1: relay power-gate closed
+    constexpr uint8_t SHUTDOWN_REQUEST              = 1u << 7;  // Block F1: shutdown switch held OPEN >= SHUTDOWN_HOLD_MS
 }  // namespace status

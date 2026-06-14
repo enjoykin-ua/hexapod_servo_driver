@@ -158,7 +158,9 @@ Format auf RP2040 und x86_64).
 | 2 | `TOTAL_OVERCURRENT_TRIPPED` | Σ Strom > Limit, alle Servos disabled |
 | 3 | `ANY_SERVO_OVERCURRENT_TRIPPED` | mindestens ein Servo wegen Stall disabled |
 | 4 | `ANY_SERVO_DISABLED` | mindestens ein Servo aktuell disabled |
-| 5–7 | reserviert | (0) |
+| 5 | `UNDERVOLTAGE_WARNING` | Servo-Rail < WARN (warn-only, kein Disable, auto-clearing) |
+| 6 | `RELAY_ON` | Relay-Power-Gate geschlossen (Servo-Rail bestromt) |
+| 7 | `SHUTDOWN_REQUEST` | Shutdown-Schalter (A1/GP27) ≥ `SHUTDOWN_HOLD_MS` (3 s) offen gehalten; Host-seitiger kontrollierter Shutdown (Block F) |
 
 ### 3.2 INPUTS-Payload (Antwort auf GET_INPUTS)
 

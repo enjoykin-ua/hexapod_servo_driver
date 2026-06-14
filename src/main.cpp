@@ -87,6 +87,16 @@ bool    switch_state_stable = false;          // committed (debounced) state
 bool    switch_last_raw     = false;          // last raw sample
 uint8_t switch_stable_count = 0;              // consecutive stable raw samples
 
+// Block F1 — shutdown request derived from the switch. Armed only after the
+// switch has been seen CLOSED once since boot (so a board that boots with the
+// switch OPEN does not request a shutdown). Once armed, holding the switch OPEN
+// for >= cfg::SHUTDOWN_HOLD_MS asserts shutdown_request, which GET_STATE exposes
+// as status::SHUTDOWN_REQUEST (bit 7). Closing the switch cancels a pending
+// request (track-level; the ROS supervisor latches the final decision).
+bool            switch_armed      = false;
+absolute_time_t switch_open_since = {};       // set when the switch becomes OPEN
+bool            shutdown_request  = false;     // source for status bit 7
+
 // -----------------------------------------------------------------------------
 // Frame send helpers
 // -----------------------------------------------------------------------------
@@ -187,7 +197,11 @@ void handle_get_state(uint8_t seq) {
     }
     payload[off++] = static_cast<uint8_t>(rail_voltage_mv & 0xFF);
     payload[off++] = static_cast<uint8_t>((rail_voltage_mv >> 8) & 0xFF);
-    payload[off++] = status_flags;
+    // Block F1: derive bit 7 from shutdown_request at send time (not carried in
+    // the status_flags global, so RESET/trip bookkeeping can't disturb it).
+    uint8_t flags = status_flags;
+    if (shutdown_request) flags |= status::SHUTDOWN_REQUEST;
+    payload[off++] = flags;
 
     send_frame(seq, cmd::STATE_RESPONSE, payload, static_cast<uint8_t>(off));
 }
@@ -412,21 +426,37 @@ void set_bar(uint8_t r, uint8_t g, uint8_t b) {
 void poll_switch() {
     if (!g_leds) return;
     bool raw = gpio_get(SWITCH_PIN) != 0;
+
+    // --- Debounce + committed-edge handling ---
     if (raw != switch_last_raw) {
         // Bounce / change in progress — restart the stability counter.
         switch_last_raw     = raw;
         switch_stable_count = 0;
-        return;
-    }
-    if (switch_stable_count < SWITCH_DEBOUNCE_TICKS) {
+    } else if (switch_stable_count < SWITCH_DEBOUNCE_TICKS) {
         ++switch_stable_count;
         if (switch_stable_count == SWITCH_DEBOUNCE_TICKS &&
             raw != switch_state_stable) {
             // Debounced transition committed.
             switch_state_stable = raw;
-            if (raw) set_bar(0, 80, 0);   // CLOSED (1) -> green
-            else     set_bar(50, 0, 0);   // OPEN   (0) -> dim red
+            if (raw) {
+                // CLOSED (1): arm + cancel any pending request; LED green.
+                switch_armed     = true;
+                shutdown_request = false;
+                set_bar(0, 80, 0);
+            } else {
+                // OPEN (0): start the hold timer; LED red. No assert yet.
+                switch_open_since = get_absolute_time();
+                set_bar(50, 0, 0);
+            }
         }
+    }
+
+    // --- F1 hold-to-confirm: assert the request once the switch has been OPEN
+    // for >= SHUTDOWN_HOLD_MS while armed. Runs every tick (not just on edges).
+    if (!switch_state_stable && switch_armed && !shutdown_request &&
+        absolute_time_diff_us(switch_open_since, get_absolute_time()) >=
+            static_cast<int64_t>(cfg::SHUTDOWN_HOLD_MS) * 1000) {
+        shutdown_request = true;
     }
 }
 
