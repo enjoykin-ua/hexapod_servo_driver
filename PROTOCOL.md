@@ -131,8 +131,9 @@ Codes oben in der Tabelle.
 Format auf RP2040 und x86_64).
 
 **Bereich-Reservierungen**:
-- 0x40 ist `GET_INPUTS` (digital — Pimoroni `AnalogMux::read() → bool` mit
-  `configure_pulls()` für Pull-Up am Schalter-Pin).
+- 0x40 ist `GET_INPUTS` (digital — geteilter ADC `read_voltage() < 1,65 V` je
+  Mux-Kanal, `configure_pulls()` für Pull-Up am Schalter-Pin, firmware-seitig
+  entprellt; siehe §3.2).
 - 0x41 ist reserviert für künftiges `GET_SENSORS_ANALOG` (ADC-Raw je
   Mux-Adresse), falls später Strom-/Sensor-Bauteile statt Schalter dranhängen.
 - 0x32 ist reserviert für `SET_LEDS_RANGE` (Subset von LEDs, falls nötig).
@@ -181,9 +182,21 @@ gegen Pull-Up).
 **Hinweis**: Mux-Adressen `0b110` und `0b111` sind für Voltage-/Current-Sense
 reserviert (siehe §3.1 STATE) und tauchen hier **nicht** auf.
 
-**Pull-Konfiguration**: Firmware konfiguriert beim Boot pro Sensor-Pin
-intern Pull-Up. Schalter sind also gegen GND zu schalten (aktiv = LOW
-am Pin → Bit gesetzt nach Negation in der Firmware).
+**Pull-Konfiguration + Schwelle**: Firmware konfiguriert beim Boot pro
+Sensor-Pin intern **Pull-Up** (`AnalogMux::configure_pulls(addr, /*up=*/true,
+/*down=*/false)`). Fuß-Taster (normally-open) sind gegen **GND** zu schalten:
+Fuß in der Luft → offen → Pin HIGH (~3,3 V) → **Bit 0**; Fuß am Boden → Taster
+geschlossen → Pin gegen GND → LOW → **Bit 1**. Die Firmware liest pro Kanal
+`read_voltage()` über den geteilten ADC (Mux-Select davor) und wertet
+`Spannung < 1,65 V` (halbe 3V3) als „aktiv/gedrückt". `USER_SW` (Bit 6) ist ein
+digitaler GPIO-Read (interner Pull-Up, aktiv = LOW).
+
+**Entprellung**: Der Snapshot ist firmware-seitig entprellt — ein Roh-Pegel
+muss **2 aufeinanderfolgende Ticks** (100 Hz Tick → ~20 ms) stabil halten,
+bevor das committed Bit kippt. Dadurch ist die Bitmaske frei von
+Kontakt-Prellen und **entkoppelt von der Host-Poll-Rate**. Das Sampling läuft
+jeden Tick (auch ohne verbundenen Host), `GET_INPUTS` liest nur den letzten
+Snapshot.
 
 ### 3.3 SET_LED / SET_LEDS_ALL — LED-Range
 
@@ -349,10 +362,20 @@ und ein `ERR_PULSE_OUT_OF_RANGE` wird einmalig gesendet.
 
 ## 8. Versionierung
 
-Dieses Dokument ist **Version 1.0**, fixiert am 2026-05-14.
+Dieses Dokument ist **Version 1.1**.
 
 Änderungen am Wire-Protokoll erfordern eine neue Version + Eintrag in
 `phase_7_progress.md` Design-Entscheidungen + Tag im fw-Repo
 (`protocol-vX.Y`). Inkompatible Änderungen markieren wir an Major-Version
 (2.0), kompatible Erweiterungen (z. B. neue Opcodes) an Minor-Version
 (1.1).
+
+### Änderungshistorie
+
+- **1.0** (2026-05-14, Phase 7 Stufe B): Erst-Fassung fixiert.
+- **1.1** (Block A5 Stufe 5, HW-Fußkontakte): `GET_INPUTS` (0x40) /
+  `INPUTS` (0xC0) in der Firmware implementiert (war zuvor `NACK`/
+  `UNKNOWN_OPCODE`). Kompatible Erweiterung — bestehende Opcodes unverändert.
+  §3.2 präzisiert: interner Pull-Up gegen GND, digitale Schwelle 1,65 V je
+  Mux-Kanal, firmware-seitige Entprellung (2 Ticks / ~20 ms), Bit 6 = `USER_SW`
+  (GPIO 23, active-low, mitgeführt aber host-seitig ignoriert).

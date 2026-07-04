@@ -52,6 +52,9 @@ servo::ServoCluster* g_servos = nullptr;
 pimoroni::AnalogMux* g_mux       = nullptr;
 pimoroni::Analog*    g_cur_sense = nullptr;
 pimoroni::Analog*    g_vol_sense = nullptr;
+// HW5 — plain sensor ADC on the shared pin (no gain) for the 6 foot-contact
+// switches, read via the mux in poll_inputs() (GET_INPUTS source).
+pimoroni::Analog*    g_sen_sense = nullptr;
 
 // IIR-smoothed total rail current (mA). Stored as 32-bit to keep the
 // (smooth*7 + sample) intermediate within range; cast to uint16 for GET_STATE.
@@ -96,6 +99,32 @@ uint8_t switch_stable_count = 0;              // consecutive stable raw samples
 bool            switch_armed      = false;
 absolute_time_t switch_open_since = {};       // set when the switch becomes OPEN
 bool            shutdown_request  = false;     // source for status bit 7
+
+// -----------------------------------------------------------------------------
+// HW5 — foot-contact + USER_SW input snapshot (GET_INPUTS source).
+//
+// Six foot switches (normally-open) wire between each SENSOR_n `IN` and header
+// GND. main() enables an internal pull-up on every SENSOR channel, so an OPEN
+// switch (foot in the air) reads HIGH (~3.3 V) and a CLOSED switch (foot on the
+// ground) pulls the mux pin LOW (< SENSOR_THRESHOLD_V). poll_inputs() selects
+// the channel on the shared-ADC mux, reads the voltage, and treats "below the
+// threshold" as pressed = contact = 1.
+//
+// inputs_stable is a debounced 7-bit snapshot, refreshed every tick:
+//   bit 0..5 = leg 1..6 foot contact (SENSOR_1..6)
+//   bit 6    = USER_SW (onboard button, active-low; carried but host-ignored)
+//   bit 7    = reserved (0)
+// GET_INPUTS returns this byte verbatim (PROTOCOL.md §3.2). The debounce mirrors
+// poll_switch: a raw level must hold SENSOR_DEBOUNCE_TICKS consecutive samples
+// before it flips the committed bit, which kills contact-bounce flutter at the
+// source (decoupled from the host poll rate).
+// -----------------------------------------------------------------------------
+constexpr float   SENSOR_THRESHOLD_V    = 1.65f;  // < = pressed (pin pulled to GND)
+constexpr uint8_t SENSOR_DEBOUNCE_TICKS = 2;      // 2 ticks @100 Hz = 20 ms stable
+constexpr uint8_t NUM_INPUT_BITS        = 7;      // 6 foot sensors + USER_SW
+uint8_t inputs_stable = 0;                        // committed debounced bitmask
+bool    input_raw_last  [NUM_INPUT_BITS] = {};    // last raw sample per bit
+uint8_t input_stable_cnt[NUM_INPUT_BITS] = {};    // consecutive-stable counter
 
 // -----------------------------------------------------------------------------
 // Frame send helpers
@@ -363,6 +392,14 @@ void handle_relay_control(uint8_t seq, const uint8_t* p, uint8_t len) {
     send_ack(seq, cmd::RELAY_CONTROL);
 }
 
+// HW5 — GET_INPUTS: reply with the 1-byte debounced input bitmask (PROTOCOL.md
+// §3.2). The dispatcher validates LEN==0 before calling. inputs_stable is
+// maintained every tick by poll_inputs(), so this handler just snapshots it.
+void handle_get_inputs(uint8_t seq) {
+    uint8_t payload[1] = { inputs_stable };
+    send_frame(seq, cmd::INPUTS_RESPONSE, payload, 1);
+}
+
 void dispatch(const proto::Frame& f) {
     // Every valid (CRC-checked) frame keeps the watchdog happy.
     last_valid_frame_time = get_absolute_time();
@@ -389,12 +426,15 @@ void dispatch(const proto::Frame& f) {
         case cmd::RELAY_CONTROL:
             handle_relay_control(f.seq, f.payload, f.len);
             return;
+        case cmd::GET_INPUTS:
+            if (f.len != 0) { send_error(f.seq, err::PAYLOAD_LEN, 0, 0); return; }
+            handle_get_inputs(f.seq);
+            return;
 
-        // Stages F (calibration) / later (LEDs, inputs)
+        // Stages F (calibration) / later (LEDs)
         case cmd::SET_CALIBRATION:
         case cmd::SET_LED:
         case cmd::SET_LEDS_ALL:
-        case cmd::GET_INPUTS:
             send_nack(f.seq, f.cmd, err::UNKNOWN_OPCODE);
             return;
 
@@ -461,10 +501,46 @@ void poll_switch() {
 }
 
 // -----------------------------------------------------------------------------
+// HW5 — sample all 7 inputs, debounce, commit into inputs_stable. Called once
+// per tick from on_tick() (and in the USB-host wait loop, so the snapshot is
+// warm before the host connects). The 6 foot sensors share the ADC mux (select
+// then read_voltage < threshold = pressed); USER_SW is a plain GPIO read
+// (pull-up, active-low). Debounce mirrors poll_switch: a changed raw restarts
+// the per-bit counter; a raw that holds SENSOR_DEBOUNCE_TICKS samples commits
+// the bit. Independent of servo/host state — needs only g_mux + g_sen_sense.
+// -----------------------------------------------------------------------------
+void poll_inputs() {
+    if (!g_mux || !g_sen_sense) return;
+    for (uint8_t ch = 0; ch < NUM_INPUT_BITS; ++ch) {
+        bool raw;
+        if (ch < servo::servo2040::NUM_SENSORS) {
+            g_mux->select(servo::servo2040::SENSOR_1_ADDR + ch);
+            raw = g_sen_sense->read_voltage() < SENSOR_THRESHOLD_V;  // pressed = LOW
+        } else {
+            raw = gpio_get(servo::servo2040::USER_SW) == 0;          // active-low
+        }
+        if (raw != input_raw_last[ch]) {
+            // Bounce / change in progress — restart this bit's stability counter.
+            input_raw_last[ch]   = raw;
+            input_stable_cnt[ch] = 0;
+        } else if (input_stable_cnt[ch] < SENSOR_DEBOUNCE_TICKS) {
+            ++input_stable_cnt[ch];
+            if (input_stable_cnt[ch] == SENSOR_DEBOUNCE_TICKS) {
+                // Debounced level committed into the snapshot bit.
+                const uint8_t mask = static_cast<uint8_t>(1u << ch);
+                if (raw) inputs_stable |=  mask;
+                else     inputs_stable &= static_cast<uint8_t>(~mask);
+            }
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
 // Tick
 // -----------------------------------------------------------------------------
 void on_tick() {
-    poll_switch();  // temporary switch-wiring test (independent of servo state)
+    poll_switch();     // Block F1 shutdown-switch (A1/GP27), independent of servos
+    poll_inputs();     // HW5 foot-contact + USER_SW snapshot (GET_INPUTS source)
     if (!g_servos) return;
 
     // C.2 — Watchdog: if armed and no valid frame within the timeout,
@@ -624,6 +700,13 @@ int main() {
     gpio_set_dir(SWITCH_PIN, GPIO_IN);
     gpio_pull_down(SWITCH_PIN);
 
+    // HW5 — onboard USER_SW (GP23) as digital input with internal pull-up
+    // (pressed = LOW). Carried in GET_INPUTS bit 6; the host currently ignores
+    // it (no consumer), but the snapshot keeps it honest for future use.
+    gpio_init(servo::servo2040::USER_SW);
+    gpio_set_dir(servo::servo2040::USER_SW, GPIO_IN);
+    gpio_pull_up(servo::servo2040::USER_SW);
+
     stdio_init_all();
 
     // Switch test (temporary): bring the onboard WS2812 LED bar up EARLY — before
@@ -638,12 +721,42 @@ int main() {
     g_leds = &led_bar;
     set_bar(50, 0, 0);   // OPEN indication at boot (switch_state_stable = false)
 
+    // Init ADC mux + analog sensing (Stage E) — moved BEFORE the USB-host wait so
+    // the HW5 foot-contact snapshot (poll_inputs) works standalone on bare USB
+    // power, like the GP27 switch test. mux drives ADDR_0/1/2; both Analog read
+    // SHARED_ADC (GPIO29), the mux picks which signal sits on the pin.
+    static pimoroni::AnalogMux mux(servo::servo2040::ADC_ADDR_0,
+                                   servo::servo2040::ADC_ADDR_1,
+                                   servo::servo2040::ADC_ADDR_2,
+                                   PIN_UNUSED,
+                                   servo::servo2040::SHARED_ADC);
+    static pimoroni::Analog cur_sense(servo::servo2040::SHARED_ADC,
+                                      servo::servo2040::CURRENT_GAIN,
+                                      servo::servo2040::SHUNT_RESISTOR,
+                                      servo::servo2040::CURRENT_OFFSET);
+    static pimoroni::Analog vol_sense(servo::servo2040::SHARED_ADC,
+                                      servo::servo2040::VOLTAGE_GAIN);
+    // HW5 — plain sensor ADC (no gain) for the foot-contact switches on the mux.
+    static pimoroni::Analog sen_sense(servo::servo2040::SHARED_ADC);
+    g_mux       = &mux;
+    g_cur_sense = &cur_sense;
+    g_vol_sense = &vol_sense;
+    g_sen_sense = &sen_sense;
+    // HW5 — every SENSOR channel gets an internal pull-up so a NO foot switch to
+    // GND reads LOW (< SENSOR_THRESHOLD_V) when the foot is on the ground. All 6
+    // channels (leg 1..6) are configured; poll_inputs() samples them each tick.
+    for (uint8_t ch = 0; ch < servo::servo2040::NUM_SENSORS; ++ch) {
+        mux.configure_pulls(
+            servo::servo2040::SENSOR_1_ADDR + ch, /*pull_up=*/true, /*pull_down=*/false);
+    }
+
     // Wait for the host to actually open /dev/ttyACM* before printing the
     // boot banner — otherwise the bytes are lost. The board stays reachable
-    // via picotool throughout this wait. Poll the switch here too, so the LED
-    // test works with NO host attached (standalone bench check).
+    // via picotool throughout this wait. Poll here too so the GP27 shutdown
+    // switch AND the HW5 foot-contact snapshot stay warm with NO host attached.
     while (!stdio_usb_connected()) {
         poll_switch();
+        poll_inputs();
         sleep_ms(50);
     }
     sleep_ms(50);
@@ -665,24 +778,8 @@ int main() {
     servos.init();
     g_servos = &servos;
 
-    // Init ADC mux + analog sensing (Stage E).
-    // mux drives ADDR_0/1/2; CURRENT_SENSE_ADDR=0b111, VOLTAGE_SENSE_ADDR=0b110.
-    // Both Analog instances read SHARED_ADC (GPIO29) — the mux picks which signal
-    // sits on that pin at any given time.
-    static pimoroni::AnalogMux mux(servo::servo2040::ADC_ADDR_0,
-                                   servo::servo2040::ADC_ADDR_1,
-                                   servo::servo2040::ADC_ADDR_2,
-                                   PIN_UNUSED,
-                                   servo::servo2040::SHARED_ADC);
-    static pimoroni::Analog cur_sense(servo::servo2040::SHARED_ADC,
-                                      servo::servo2040::CURRENT_GAIN,
-                                      servo::servo2040::SHUNT_RESISTOR,
-                                      servo::servo2040::CURRENT_OFFSET);
-    static pimoroni::Analog vol_sense(servo::servo2040::SHARED_ADC,
-                                      servo::servo2040::VOLTAGE_GAIN);
-    g_mux       = &mux;
-    g_cur_sense = &cur_sense;
-    g_vol_sense = &vol_sense;
+    // (ADC mux + analog sensing initialised earlier, before the USB-host wait,
+    //  so the HW5 foot-contact snapshot runs standalone — see above.)
 
     // Banner — keep "Servo2040 USB-UART Communication Started" prefix
     // so tools/flash_and_verify.py keeps matching.

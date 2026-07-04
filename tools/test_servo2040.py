@@ -40,9 +40,11 @@ NUM_SERVOS = 18
 CMD_SET_TARGETS    = 0x01
 CMD_GET_STATE      = 0x02
 CMD_ENABLE_SERVO   = 0x20
+CMD_GET_INPUTS     = 0x40  # HW5: request foot-contact + USER_SW bitmask
 CMD_RESET          = 0x50
 CMD_RELAY_CONTROL  = 0x51  # Stage 0.1: payload 1 byte (1=on, 0=off)
 CMD_STATE_RESP     = 0x82
+CMD_INPUTS_RESP    = 0xC0  # HW5: 1-byte bitmask reply to GET_INPUTS
 CMD_ERROR_REPORT   = 0x7F
 CMD_ACK            = 0xFF
 CMD_NACK           = 0xFE
