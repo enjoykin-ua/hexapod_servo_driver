@@ -20,9 +20,11 @@
 //             expose per-servo current — only total via CURRENT_SENSE_ADDR mux)
 //   - E.2:    Undervoltage warn (UNDERVOLTAGE_WARN_MV, auto-clearing) + critical
 //             trip (UNDERVOLTAGE_CRIT_MV, RESET to clear)
+//   - HW5:     GET_INPUTS — debounced foot-contact + USER_SW bitmask (poll_inputs
+//             in on_tick + handle_get_inputs; PROTOCOL.md §3.2, v1.1)
 //
 // NOT YET implemented (later stages):
-//   - SET_CALIBRATION (stage F) / SET_LED / SET_LEDS_ALL / GET_INPUTS (stage G+)
+//   - SET_CALIBRATION (stage F) / SET_LED / SET_LEDS_ALL
 //   - Per-servo stall detection via software (would need pulse-vs-target chase
 //     timing; deferred to Phase 10 if needed)
 // =============================================================================
